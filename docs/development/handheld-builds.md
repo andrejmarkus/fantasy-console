@@ -168,8 +168,9 @@ iterations where the fixed timestep has no frame to advance, rather than
 spinning a core.
 
 Scaling is nearest-neighbour only (`SDL_RENDER_SCALE_QUALITY=0`). On a
-640×480 panel the default `--scale fit --aspect square` draws the 128×128
-framebuffer at 480×480, pillarboxed on black.
+640×480 panel the default `--scale fit --aspect square` draws the 192×128
+framebuffer at 639×426, letterboxed on black. `fit` shrinks to the width
+budget when filling the height would push a wide console off the panel.
 
 ## What ships inside the binary
 

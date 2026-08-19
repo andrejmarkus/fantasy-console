@@ -1,13 +1,13 @@
 -- Catch the Fruit — move the player onto the falling fruit before time runs out
 
-local INIT_POS = 60
+local INIT_X, INIT_Y = 92, 60
 local INIT_TIMER = 100
 local HALF_SPR = 4
 
-local FRUIT_X_MIN, FRUIT_X_RANGE = 10, 100
+local FRUIT_X_MIN, FRUIT_X_RANGE = 10, 164
 local FRUIT_Y_MIN, FRUIT_Y_RANGE = 20, 80
 
-local player_x, player_y = INIT_POS, INIT_POS
+local player_x, player_y = INIT_X, INIT_Y
 local fruit_x, fruit_y = 0, 0
 local score = 0
 local timer = INIT_TIMER
@@ -24,7 +24,7 @@ function _init()
   set_palette_color(2, 255, 50, 50)
   set_palette_color(3, 50, 255, 50)
 
-  player_x, player_y = INIT_POS, INIT_POS
+  player_x, player_y = INIT_X, INIT_Y
   score = 0
   spawn_fruit()
   play_music(0)
@@ -35,7 +35,7 @@ function _update()
 
   draw_text("SCORE:", 5, 5, 1)
   draw_number(score, 45, 5, 3)
-  draw_text("TIME:", 75, 5, 1)
+  draw_text("TIME:", 139, 5, 1)
   draw_number(timer, 105, 5, 3)
 
   sprite(0, player_x, player_y)

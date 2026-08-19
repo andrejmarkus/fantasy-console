@@ -584,12 +584,22 @@ mod tests {
     }
 
     #[test]
-    fn metrics_for_default_launch_size_keeps_its_own_dimensions_and_scales_down() {
-        // 128x128 default VmConfig console res x WINDOW_SCALE(4) from
+    fn metrics_for_default_launch_size_keeps_its_own_dimensions() {
+        // 192x128 default VmConfig console res x WINDOW_SCALE(4) from
         // platform/window.rs -- the size every default launch actually
         // gets, never 640x480. Regression guard for the boot screen
-        // rendering off-center and using oversized fixed padding/fonts on
-        // the real, smaller canvas.
+        // rendering off-center or using fixed padding/fonts sized for a
+        // canvas the real window does not have.
+        let m = metrics_for(768, 512);
+        assert_eq!((m.width, m.height), (768, 512));
+        // Height (512/480) is the binding axis, so the handheld design is
+        // scaled up by that ratio rather than the wider 768/640.
+        assert!(m.screen_pad_x > METRICS_640.screen_pad_x);
+        assert!(m.text.boot_wordmark > METRICS_640.text.boot_wordmark);
+    }
+
+    #[test]
+    fn metrics_for_a_window_smaller_than_the_handheld_design_scales_down() {
         let m = metrics_for(512, 512);
         assert_eq!((m.width, m.height), (512, 512));
         assert!(m.screen_pad_x < METRICS_640.screen_pad_x);

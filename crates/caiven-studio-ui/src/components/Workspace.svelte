@@ -23,6 +23,7 @@
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
+  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
 
   type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
   type MapRegion = { x0: number; y0: number; w: number; h: number };
@@ -207,9 +208,9 @@
   }
 
   $effect(() => {
-    if (!coverCanvas || frameData?.length !== 128 * 128 * 4) return;
+    if (!coverCanvas || frameData?.length !== SCREEN_RGBA_LEN) return;
     const ctx = coverCanvas.getContext('2d');
-    ctx?.putImageData(new ImageData(new Uint8ClampedArray(frameData), 128, 128), 0, 0);
+    ctx?.putImageData(new ImageData(new Uint8ClampedArray(frameData), SCREEN_WIDTH, SCREEN_HEIGHT), 0, 0);
   });
   // Shared by the sprite rail and map toolbar so both editors present the same
   // order, icons, and keyboard shortcuts for their parity toolset.
@@ -1730,10 +1731,10 @@
         <aside class="cart-preview">
           <span class="eyebrow">Port preview</span>
           <div class="cover-art">
-            {#if frameData?.length === 128 * 128 * 4}
-              <canvas bind:this={coverCanvas} width="128" height="128"></canvas>
+            {#if frameData?.length === SCREEN_RGBA_LEN}
+              <canvas bind:this={coverCanvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT}></canvas>
             {:else}
-              {#each Array(256) as _,p}<i style={`background:${palette[(p * 7 + 5) % 16]}`}></i>{/each}
+              {#each Array(384) as _,p}<i style={`background:${palette[(p * 7 + 5) % 16]}`}></i>{/each}
             {/if}
             <div class="scanline-overlay"></div>
           </div>

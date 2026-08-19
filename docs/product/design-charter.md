@@ -216,8 +216,9 @@ math. Deciding the split is Phase 2 work; no module is edited by this charter.
 
 ## Appendix B — status
 
-The hardware table in §4 is **target state**. The code still carries the
-pre-redesign numbers (128 × 128 screen, 64 × 64 map, 8 voices with a legacy sfx
-voice, numeric bank ids, `dset`/`dget`). The redesign lands phase by phase; the
+The hardware table in §4 is **target state**. The 192 × 128 screen has landed
+(item 2.1). The code still carries the pre-redesign numbers everywhere else
+(64 × 64 map, 8 voices with a legacy sfx voice, numeric bank ids,
+`dset`/`dget`). The redesign lands phase by phase; the
 charter is what those phases are steering toward, and is authoritative in any
 disagreement with the code.

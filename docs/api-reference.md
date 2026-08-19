@@ -189,16 +189,17 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 ## System Specifications
 
 > [!IMPORTANT]
-> The numbers below describe the console **as it is today**. A hardware
-> redesign is approved and pending: 192×128 screen, 128×128 map, redesigned
-> 16-color palette, 6 typed audio voices, named banks, and `dset`/`dget`
-> removed. Target spec: [design charter](product/design-charter.md) §4.
+> The numbers below describe the console **as it is today**. The 192×128
+> screen has landed; the rest of the hardware redesign is approved and still
+> pending: 128×128 map, redesigned 16-color palette, 6 typed audio voices,
+> named banks, and `dset`/`dget` removed. Target spec:
+> [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 
 | Component         | Specification                                                                     |
 | :-----------------| :------------------------------------------------------------------------------------|
 | **Script engine** | Lua 5.4 via `mlua` (vendored)                                                     |
-| **Resolution**    | 128×128 (upscaled 4×)                                                             |
+| **Resolution**    | 192×128, 24×16 tiles (upscaled 4×)                                                |
 | **RAM**           | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
 | **Palette**       | 16 colors                                                                         |

@@ -5,6 +5,7 @@
   import { Input } from '@caiven/ui/input';
   import * as Tabs from '@caiven/ui/tabs';
   import DebugValueRow from './DebugValueRow.svelte';
+  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
   import type { CallFrame, DebugChild, Diagnostic, GlobalValue, PauseReason, RunState } from '../types';
 
   interface Props {
@@ -82,24 +83,25 @@
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    if (frameData?.length === 128 * 128 * 4) {
-      ctx.putImageData(new ImageData(new Uint8ClampedArray(frameData), 128, 128), 0, 0);
+    if (frameData?.length === SCREEN_RGBA_LEN) {
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(frameData), SCREEN_WIDTH, SCREEN_HEIGHT), 0, 0);
       return;
     }
     ctx.fillStyle = '#080818';
-    ctx.fillRect(0, 0, 128, 128);
-    for (let y = 0; y < 16; y += 1) {
-      for (let x = 0; x < 16; x += 1) {
-        if (x === 0 || y === 0 || x === 15 || y === 15) ctx.fillStyle = '#5F574F';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    const cols = SCREEN_WIDTH / 8, rows = SCREEN_HEIGHT / 8;
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < cols; x += 1) {
+        if (x === 0 || y === 0 || x === cols - 1 || y === rows - 1) ctx.fillStyle = '#5F574F';
         else if ((x * 7 + y * 13 + 93) % 11 === 0) ctx.fillStyle = '#008751';
         else ctx.fillStyle = '#1D2B53';
         ctx.fillRect(x * 8, y * 8, 8, 8);
       }
     }
     ctx.fillStyle = '#FFF1E8';
-    ctx.fillRect(60, 56, 8, 8);
+    ctx.fillRect(SCREEN_WIDTH / 2 - 4, 56, 8, 8);
     ctx.fillStyle = '#FFEC27';
-    ctx.fillRect(88, 32, 6, 6);
+    ctx.fillRect(SCREEN_WIDTH - 40, 32, 6, 6);
     ctx.font = '5px monospace';
     ctx.fillStyle = '#FFF1E8';
     ctx.fillText('SCORE 7', 3, 7);
@@ -109,14 +111,14 @@
 <aside class="console-pane">
   <div class="panel-cap">
     <span class="eyebrow">Console</span>
-    <code>128 × 128 · <span class="scale-wide">4×</span><span class="scale-narrow">3×</span></code>
+    <code>{SCREEN_WIDTH} × {SCREEN_HEIGHT} · <span class="scale-wide">4×</span><span class="scale-narrow">3×</span></code>
     <Button variant="ghost" size="sm" class="ghost-action" onclick={onFocus}><Maximize2 size={14} />Focus</Button>
     <Button variant="ghost" size="icon-sm" class="ghost-action icon-only" title="Hide console" onclick={onClose}><PanelRightClose size={14} /></Button>
   </div>
 
   <div class="screen-stage">
     <div class="console-screen" class:running>
-      <canvas bind:this={canvas} width="128" height="128" aria-label="Cart framebuffer"></canvas>
+      <canvas bind:this={canvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} aria-label="Cart framebuffer"></canvas>
       <div class="scanline-overlay"></div>
       <div class="crt-vignette"></div>
       {#if !running}

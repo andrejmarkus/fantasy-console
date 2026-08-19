@@ -1,7 +1,7 @@
 -- Simple movement demo — arrow keys move sprite 0 around the screen
 local SPEED = 2
 
-local x = 60
+local x = 92
 local y = 60
 
 function _init()

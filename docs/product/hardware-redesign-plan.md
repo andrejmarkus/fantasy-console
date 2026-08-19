@@ -13,9 +13,13 @@ Order matters where noted; otherwise items are independent.
 
 ## Phase 2 — hardware
 
-### 2.1 Screen 128 × 128 → 192 × 128
+### 2.1 Screen 128 × 128 → 192 × 128 — **done**
 
-Do this first: several later items are sized against the screen.
+Landed; kept as the record of what the item covered. Two things the original
+list did not anticipate: `--scale fit --aspect square` filled the window height
+unconditionally, which pushed a 3:2 console off the sides of a 4:3 handheld
+panel (now clamped to the width budget), and every cover-art container in
+Studio and Port was `aspect-square`.
 
 - `crates/caiven-core/src/memory.rs:28-30` — `SCREEN_WIDTH` 128 → 192. Derived
   bases follow automatically through `MemRegion::span`/`base`.
@@ -45,6 +49,12 @@ in-bounds and x=192 errors.
 - Minimap scaling.
 
 Guest RAM is untouched: map and collision live in their own regions.
+
+Blocked on this item, left alone by 2.1: the platformer showcase snaps its
+camera to 16 × 16-tile rooms (`projects/showcase/platformer/main.lua`,
+`ROOM_TILES = 16`), so a 24-tile-wide screen now shows a strip of the
+neighbouring room. Re-authoring the rooms to 24 × 16 needs a map wider than
+64 tiles (4 rooms × 24 = 96), which is exactly what this item delivers.
 
 ### 2.3 Palette redesign
 

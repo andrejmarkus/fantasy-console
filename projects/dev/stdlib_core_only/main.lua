@@ -10,7 +10,7 @@ function _init()
   set_palette_color(0, 12, 12, 24)
   set_palette_color(1, 255, 220, 90)
   set_palette_color(2, 90, 200, 255)
-  seed_x = random_range(20, 108)
+  seed_x = random_range(20, 172)
   seed_y = random_range(20, 108)
 end
 
@@ -18,7 +18,7 @@ function _update()
   clear_screen()
   t = t + 1
   local phase = (t % 120) / 120
-  local x = lerp(10, 118, ease_in_out_quad(phase))
+  local x = lerp(10, 182, ease_in_out_quad(phase))
   local y = clamp(64 + math.sin(t / 20) * 40, 4, 124)
   set_pixel(math.floor(x), math.floor(y), 1)
   set_pixel(seed_x, seed_y, 2)

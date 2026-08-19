@@ -11,9 +11,9 @@ function _init()
   set_palette_color(2, 255, 120, 90)
 
   pos = Vec2.new(10, 64)
-  tw = new_tween(10, 108, 90, ease_out_quad)
+  tw = new_tween(10, 172, 90, ease_out_quad)
 
-  player = { pos = Vec2.new(64, 64), dead = false }
+  player = { pos = Vec2.new(96, 64), dead = false }
   Entities.add(player)
   Camera.follow(player, { lerp = 0.15 })
 
@@ -23,7 +23,7 @@ function _init()
       pos.x = tween_update(tw)
       if tw.done then
         Particles.spawn(pos.x, pos.y, 0, -1, 2, 20)
-        tw = new_tween(10, 108, 90, ease_out_quad)
+        tw = new_tween(10, 172, 90, ease_out_quad)
       end
       Particles.update()
       Camera.update()

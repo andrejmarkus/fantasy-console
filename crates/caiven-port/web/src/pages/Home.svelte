@@ -94,10 +94,10 @@
             {/each}
           </div>
         </div>
-        <a href="/cart/{featured.id}" use:link class="cart-notch relative mx-auto aspect-square w-full max-w-[420px] flex-1 basis-[340px] overflow-hidden border border-border bg-secondary">
+        <a href="/cart/{featured.id}" use:link class="cart-notch relative mx-auto aspect-3/2 w-full max-w-[420px] flex-1 basis-[340px] overflow-hidden border border-border bg-secondary">
           <ScreenshotImg id={featured.id} hasScreenshot={featured.has_screenshot} alt={featured.title} />
           <div class="scanline-overlay pointer-events-none absolute inset-0 opacity-30"></div>
-          <span class="label-mono absolute top-3 left-3 rounded bg-black/60 px-2 py-1 text-[10px] text-white/60">128 × 128 · 16 col</span>
+          <span class="label-mono absolute top-3 left-3 rounded bg-black/60 px-2 py-1 text-[10px] text-white/60">192 × 128 · 16 col</span>
         </a>
       </div>
     </section>

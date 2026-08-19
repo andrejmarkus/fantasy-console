@@ -25,7 +25,7 @@
 //! ```
 
 /// Screen width in pixels.
-pub const SCREEN_WIDTH: u32 = 128;
+pub const SCREEN_WIDTH: u32 = 192;
 /// Screen height in pixels.
 pub const SCREEN_HEIGHT: u32 = 128;
 /// Bytes per pixel in RGBA output buffers.

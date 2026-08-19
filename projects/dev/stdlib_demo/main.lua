@@ -37,7 +37,7 @@ if button_down(3) then
 px = px + 2
 moving = true
 end
-px = clamp(px, 0, 128 - PLAYER_W)
+px = clamp(px, 0, 192 - PLAYER_W)
 local on_ground = box_touches_solid(px, py + PLAYER_H, PLAYER_W, 1)
 if on_ground then
 vy = 0
@@ -106,6 +106,6 @@ end
 draw_text("ARROWS MOVE  A JUMP  B BURST", 2, 112, 6)
 draw_text("SCORE", 2, 120, 7)
 draw_number(score, 40, 120, 10)
-draw_text("HI", 70, 120, 7)
-draw_number(high_score, 90, 120, 10)
+draw_text("HI", 130, 120, 7)
+draw_number(high_score, 150, 120, 10)
 end

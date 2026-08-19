@@ -10,13 +10,13 @@ function _init()
   set_palette_color(0, 10, 10, 20)
   set_palette_color(1, 255, 255, 255)
   set_palette_color(2, 220, 40, 40)
-  ball = {x = 64, y = 64, dx = 2, dy = 1}
+  ball = {x = 96, y = 64, dx = 2, dy = 1}
 end
 
 function _update()
   clear_screen()
 
-  if ball.x >= 120 then ball.dx = -2 end
+  if ball.x >= 184 then ball.dx = -2 end
   if ball.x <= 4 then ball.dx = 2 end
   if ball.y >= 120 then ball.dy = -1 end
   if ball.y <= 4 then ball.dy = 1 end

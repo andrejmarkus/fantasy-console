@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 /// How large the framebuffer is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default, Serialize, Deserialize)]
 pub enum ScaleMode {
-    /// Fill the window's height, whatever factor that takes. The handheld
-    /// default: a 128×128 console becomes 480×480 on a 640×480 panel.
+    /// Fill the window's height, whatever factor that takes, shrinking to the
+    /// width budget when the console is wider than the window. The handheld
+    /// default: a 192×128 console becomes 640×427 on a 640×480 panel.
     #[default]
     Fit,
     /// Exactly 2× the console resolution.
@@ -65,7 +66,14 @@ pub fn dst_rect(
     }
 
     let height = match scale {
-        ScaleMode::Fit => win_h,
+        // Fit fills the height, except that a console wider than the window's
+        // aspect would then overflow sideways — a 192×128 screen at full height
+        // on a 4:3 panel is 720px wide on 640px of glass. Clamp to the width
+        // budget so square pixels stay fully on screen (letterboxed instead).
+        ScaleMode::Fit => match aspect {
+            AspectMode::Square => win_h.min((win_w as u64 * con_h as u64 / con_w as u64) as u32),
+            AspectMode::Stretch => win_h,
+        },
         ScaleMode::Integer2x => con_h * 2,
         ScaleMode::Integer3x => con_h * 3,
     }
@@ -140,6 +148,18 @@ mod tests {
         let r = dst_rect(HANDHELD, (160, 128), ScaleMode::Fit, AspectMode::Square);
         assert_eq!(r.height, 480);
         assert_eq!(r.width, 600);
+    }
+
+    #[test]
+    fn wide_console_letterboxes_instead_of_overflowing_the_panel() {
+        // 192×128 at full 480px height would be 720px wide on a 640px panel.
+        let r = dst_rect(HANDHELD, (192, 128), ScaleMode::Fit, AspectMode::Square);
+        assert!(r.width <= 640, "overflowed the panel width: {}", r.width);
+        // 426 × 1.5 = 639: integer truncation leaves one column of black
+        // rather than rounding up and cutting a pixel off the edge.
+        assert_eq!((r.width, r.height), (639, 426));
+        assert_eq!(r.x, 0);
+        assert_eq!(r.y, (480 - 426) / 2);
     }
 
     #[test]

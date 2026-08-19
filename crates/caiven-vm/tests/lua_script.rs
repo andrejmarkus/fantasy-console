@@ -2437,3 +2437,37 @@ fn lua_run_frame_bp_stops_with_named_cart_source() {
         other => panic!("expected a breakpoint stop, got {other:?}"),
     }
 }
+
+/// The screen is 192 × 128, not square: a pixel on the far right column must
+/// land, one past it must clip rather than wrap onto the next row, and a full
+/// line of text must still fit across the 24 available columns.
+#[test]
+fn widescreen_bounds_and_text_width() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let config = VmConfig::default();
+    assert_eq!((config.width, config.height), (192, 128));
+
+    vm.load_lua_source(
+        r#"
+        function _update()
+          clear_screen()
+          set_pixel(191, 0, 8)
+          set_pixel(192, 0, 8)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    assert_eq!(read_rgba(&vm, 191, 0), [200, 60, 70, 255]);
+    // x = 192 is off-screen; it must not wrap around to (0, 1).
+    assert_ne!(read_rgba(&vm, 0, 1), [200, 60, 70, 255]);
+    // 24 tiles across, the width the charter's spec table names.
+    assert_eq!(config.width / 8, 24);
+}

@@ -13,6 +13,7 @@
   import { Progress } from '@caiven/ui/progress';
   import type { ApiEntry, CartMeta, CartTemplateSummary, PauseReason, PortSession, PublishProgress, Screen } from '../types';
   import { TOUR_STEPS, moveTourStep } from '../lib/tour';
+  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
 
   interface Props {
     overlay: 'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | 'controls' | null;
@@ -268,8 +269,8 @@
     frameData;
     if (!focusCanvas) return;
     const context = focusCanvas.getContext('2d'); if (!context) return;
-    if (frameData?.length === 128 * 128 * 4) context.putImageData(new ImageData(new Uint8ClampedArray(frameData), 128, 128), 0, 0);
-    else { context.fillStyle = '#000'; context.fillRect(0, 0, 128, 128); }
+    if (frameData?.length === SCREEN_RGBA_LEN) context.putImageData(new ImageData(new Uint8ClampedArray(frameData), SCREEN_WIDTH, SCREEN_HEIGHT), 0, 0);
+    else { context.fillStyle = '#000'; context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); }
   });
 </script>
 
@@ -454,7 +455,7 @@
       <section class="focus-mode" transition:fade={{ duration: 180 }}>
         <Button class="focus-exit" onclick={onClose}><Minimize2 size={16} />Exit focus <kbd>esc</kbd></Button>
         <div class="focus-screen">
-          <canvas class="focus-pixels" bind:this={focusCanvas} width="128" height="128" aria-label="Cart framebuffer"></canvas>
+          <canvas class="focus-pixels" bind:this={focusCanvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} aria-label="Cart framebuffer"></canvas>
           <div class="scanline-overlay"></div><div class="crt-vignette"></div>
           {#if pauseReason?.kind === 'breakpoint'}
             <div class="focus-breakpoint-banner">

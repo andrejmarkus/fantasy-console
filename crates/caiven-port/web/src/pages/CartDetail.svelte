@@ -77,7 +77,7 @@
           {#if adding}<div class="surface-panel mt-3 max-w-md rounded-lg p-3">{#each collections.filter((c) => !c.carts.some((x) => x.id === id)) as collection}<button onclick={() => add(collection.slug)} class="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-secondary"><span>{collection.title}</span><span>+</span></button>{:else}<p class="p-2 text-sm text-muted-foreground">No available owned collections.</p>{/each}</div>{/if}
         </div>
         <div class="min-w-0 flex-1 basis-[340px] md:max-w-[430px]">
-          <a href="/play/{cart.id}" use:link class="cart-notch relative block aspect-square overflow-hidden border border-border bg-black">
+          <a href="/play/{cart.id}" use:link class="cart-notch relative block aspect-3/2 overflow-hidden border border-border bg-black">
             <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
             <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-50"></div>
             <span class="ember-glow absolute right-3 bottom-3 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><PlayIcon class="size-6" fill="currentColor" /></span>

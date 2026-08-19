@@ -10,7 +10,7 @@ end
 function _update()
   clear_screen()
 
-  if t.x >= 120 then t.dx = -1 end
+  if t.x >= 184 then t.dx = -1 end
   if t.x <= 0 then t.dx = 1 end
   if t.y >= 80 then t.dy = -1 end
   if t.y <= 0 then t.dy = 1 end

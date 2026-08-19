@@ -9,7 +9,7 @@
 //! found in that file, and the value `MemRegion` actually expects — that's
 //! the fix.
 
-use caiven_core::memory::MemRegion;
+use caiven_core::memory::{MemRegion, SCREEN_HEIGHT, SCREEN_WIDTH};
 use regex::Regex;
 
 const IPC_TS: &str = include_str!("../../caiven-studio-ui/src/lib/ipc.ts");
@@ -116,6 +116,28 @@ fn api_reference_memory_map_table_matches_layout() {
         assert_eq!(
             got_end, want_end,
             "docs/api-reference.md '{keyword}' row: end found 0x{got_end:04X}, expected 0x{want_end:04X} from MemRegion::{region:?}"
+        );
+    }
+}
+
+/// The Studio frontend hand-copies the framebuffer size to build its canvases;
+/// widening the screen without updating it silently renders a torn image.
+#[test]
+fn ipc_ts_screen_size_matches_memory() {
+    let re =
+        Regex::new(r"export const (SCREEN_WIDTH|SCREEN_HEIGHT) = (\d+);").expect("valid regex");
+    for (name, want) in [
+        ("SCREEN_WIDTH", SCREEN_WIDTH),
+        ("SCREEN_HEIGHT", SCREEN_HEIGHT),
+    ] {
+        let found = re
+            .captures_iter(IPC_TS)
+            .find(|c| &c[1] == name)
+            .unwrap_or_else(|| panic!("ipc.ts: `export const {name}` not found"));
+        let got: u32 = found[2].parse().expect("regex only captures digits");
+        assert_eq!(
+            got, want,
+            "ipc.ts {name}: found {got}, expected {want} from caiven_core::memory"
         );
     }
 }

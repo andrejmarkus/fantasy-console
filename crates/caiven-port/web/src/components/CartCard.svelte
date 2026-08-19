@@ -21,7 +21,7 @@
   use:link
   class="group block overflow-hidden rounded-lg border border-border bg-card text-foreground shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary hover:text-foreground hover:no-underline hover:shadow-md"
 >
-  <div class="cart-notch relative aspect-square overflow-hidden bg-secondary">
+  <div class="cart-notch relative aspect-3/2 overflow-hidden bg-secondary">
     <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
     <Button
       type="button"

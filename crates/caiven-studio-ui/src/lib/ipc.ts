@@ -69,6 +69,12 @@ export const MEMORY = {
 
 export const COLLISION_LEN = 64 * 64;
 
+/** Console framebuffer size. Mirrors `caiven_core::memory::SCREEN_WIDTH`/`SCREEN_HEIGHT`. */
+export const SCREEN_WIDTH = 192;
+export const SCREEN_HEIGHT = 128;
+/** Framebuffer byte length in RGBA. */
+export const SCREEN_RGBA_LEN = SCREEN_WIDTH * SCREEN_HEIGHT * 4;
+
 /** Mirrors `caiven_core::builtin_collision_types()` for the browser fallback. */
 export const defaultCollisionTypes: CollisionType[] = [
   { id: 0, name: 'walkable', color: [0, 0, 0], shape: 'none' },

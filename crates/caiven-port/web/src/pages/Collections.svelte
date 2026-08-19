@@ -76,7 +76,7 @@
                 <div class="mt-4 flex items-center gap-4 font-mono text-xs text-muted-foreground"><span>{collection.cart_count} carts</span><span class="flex items-center gap-1"><UsersIcon class="size-3.5" />{collection.follower_count}</span></div>
               </div>
               <div class="grid min-w-0 flex-1 basis-[420px] grid-cols-5 gap-2">
-                {#each collection.carts.slice(0, 5) as cart}<div class="cart-notch aspect-square overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>{/each}
+                {#each collection.carts.slice(0, 5) as cart}<div class="cart-notch aspect-3/2 overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>{/each}
               </div>
             </a>
           {/each}

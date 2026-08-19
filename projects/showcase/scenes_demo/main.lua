@@ -3,7 +3,7 @@ PLAYER_SPEED = 1
 
 local function make_player()
   return {
-    pos = Vec2.new(64, 64),
+    pos = Vec2.new(96, 64),
     update = function(e)
       local dx, dy = 0, 0
       if button_down(2) then dx = dx - 1 end
@@ -39,8 +39,8 @@ title_scene = {
   end,
   draw = function(s)
     clear_screen()
-    draw_text("SCENES DEMO", 20, 50, 7)
-    draw_text("PRESS A TO PLAY", 15, 70, 6)
+    draw_text("SCENES DEMO", 52, 50, 7)
+    draw_text("PRESS A TO PLAY", 47, 70, 6)
   end,
 }
 
@@ -77,8 +77,8 @@ gameover_scene = {
   end,
   draw = function(s)
     clear_screen()
-    draw_text("GAME OVER", 25, 50, 8)
-    draw_text("PRESS A FOR TITLE", 10, 70, 6)
+    draw_text("GAME OVER", 57, 50, 8)
+    draw_text("PRESS A FOR TITLE", 42, 70, 6)
   end,
 }
 

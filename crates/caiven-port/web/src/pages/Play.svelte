@@ -66,8 +66,8 @@
   {#if loading}<div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">Booting cart…</div>
   {:else}
     <div bind:this={stage} class="stage flex flex-1 items-center justify-center p-4 md:p-8">
-      <div class="relative aspect-square w-[min(620px,72vh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
-        <canvas bind:this={canvas} width="128" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
+      <div class="relative aspect-3/2 w-[min(620px,108vh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
+        <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
         <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
         {#if fault}<div class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 p-5 text-center"><strong class="font-mono text-sm text-destructive">Cart crashed</strong><p class="mt-2 font-mono text-xs text-white">{fault}</p></div>{/if}
         <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
