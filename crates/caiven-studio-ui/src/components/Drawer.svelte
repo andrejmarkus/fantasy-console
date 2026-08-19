@@ -8,6 +8,7 @@
   import * as Select from '@caiven/ui/select';
   import * as Tabs from '@caiven/ui/tabs';
   import type { Diagnostic } from '../types';
+  import { RAM_SIZE } from '../lib/ipc';
   import {
     MEMORY_PAGE_SIZE, MEMORY_REGIONS, clampMemoryBase, formatMemoryAddress,
     formatMemoryRows, parseMemoryAddress,
@@ -90,7 +91,7 @@
       Output <span>{output.length}</span>
     </Tabs.Trigger>
     <Tabs.Trigger value="memory" class={open && tab === 'memory' ? 'active' : undefined} onclick={() => onTab('memory')}>
-      Memory <span>64K</span>
+      Memory <span>{RAM_SIZE / 1024}K</span>
     </Tabs.Trigger>
     <code title={status}>{status}</code>
     <Button class="drawer-toggle" aria-label={open ? 'Collapse drawer' : 'Expand drawer'} title={open ? 'Collapse drawer' : 'Expand drawer'} onclick={onToggle}>

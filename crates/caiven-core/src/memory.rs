@@ -11,17 +11,20 @@
 //! automatically, and `cargo test -p caiven-core` (see `tests/memory_map_sync.rs`) will fail
 //! naming any frontend/README literal that's now out of sync.
 //!
-//! RAM layout (64 KiB):
+//! Address space layout (96 KiB). The console's *general-purpose* RAM is the
+//! 64 KiB of Work + Heap; the asset windows (sprite sheet, map, palette, sfx,
+//! music, collision) sit alongside it in their own regions, so enlarging one of
+//! them never costs a cart the memory it writes its own data into.
 //! ```text
 //! 0x0000 ─ 0x3FFF   general purpose / program data / compiler scratch
 //! 0x4000 ─ 0x7FFF   sprite sheet (256 sprites × 8×8 px, 1 byte per px index)
-//! 0x8000 ─ 0x8FFF   tile map (64 × 64 tiles, 1 byte per tile)
-//! 0x9000 ─ 0x90FF   palette (16 slots × 3 bytes RGB)
-//! 0x9100 ─ 0x94FF   SFX bank (16 sfx × 64 bytes)
-//! 0x9500 ─ 0x95FF   music bank (8 patterns × 32 bytes)
-//! 0x9600 ─ 0x9602   RTC peripheral (hour, minute, second)
-//! 0x9603 ─ 0xA602   per-cell collision (64 × 64 tiles, 1 byte per cell)
-//! 0xA603 ─ 0xFFFF   general purpose / heap
+//! 0x8000 ─ 0xBFFF   tile map (128 × 128 tiles, 1 byte per tile)
+//! 0xC000 ─ 0xC0FF   palette (16 slots × 3 bytes RGB)
+//! 0xC100 ─ 0xC4FF   SFX bank (16 sfx × 64 bytes)
+//! 0xC500 ─ 0xC5FF   music bank (8 patterns × 32 bytes)
+//! 0xC600 ─ 0xC602   RTC peripheral (hour, minute, second)
+//! 0xC603 ─ 0x10602  per-cell collision (128 × 128 tiles, 1 byte per cell)
+//! 0x10603 ─ 0x17FFF general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -41,16 +44,18 @@ pub const SPRITE_COUNT: usize = 256;
 pub const PALETTE_SIZE: usize = 16;
 
 /// Tile map width in tiles.
-pub const MAP_W: usize = 64;
+pub const MAP_W: usize = 128;
 /// Tile map height in tiles.
-pub const MAP_H: usize = 64;
+pub const MAP_H: usize = 128;
 
-/// Total RAM size in bytes.
-pub const RAM_SIZE: usize = 64 * 1024;
+/// Total addressable memory in bytes. Larger than the 64 KiB of general-purpose
+/// RAM (Work + Heap) because the asset windows are mapped alongside it rather
+/// than carved out of it.
+pub const RAM_SIZE: usize = 96 * 1024;
 
 /// Sprite sheet length in bytes (256 sprites × 64 bytes).
 pub const SPRITE_SHEET_LEN: usize = SPRITE_COUNT * SPRITE_BYTES;
-/// Tile map length in bytes (64 × 64 tiles).
+/// Tile map length in bytes (128 × 128 tiles).
 pub const MAP_LEN: usize = MAP_W * MAP_H;
 /// SFX bank length in bytes (16 sfx × 64 bytes).
 pub const SFX_BANK_LEN: usize = 16 * 64;
@@ -58,7 +63,7 @@ pub const SFX_BANK_LEN: usize = 16 * 64;
 pub const MUSIC_BANK_LEN: usize = 8 * 32;
 /// RTC register block length in bytes (hour, minute, second).
 pub const RTC_LEN: usize = 3;
-/// Collision layer length in bytes (64 × 64 cells, 1 byte per cell).
+/// Collision layer length in bytes (128 × 128 cells, 1 byte per cell).
 pub const COLLISION_LEN: usize = MAP_W * MAP_H;
 
 /// One region of the RAM memory map, in the order it appears in address space.
@@ -106,12 +111,12 @@ impl MemRegion {
         match self {
             MemRegion::Work => 0x4000,
             MemRegion::SpriteSheet => SPRITE_SHEET_LEN,
-            MemRegion::Map => 0x1000,
+            MemRegion::Map => 0x4000,
             MemRegion::Palette => 0x100,
             MemRegion::Sfx => 0x400,
             MemRegion::Music => 0x100,
             MemRegion::Rtc => RTC_LEN,
-            MemRegion::Collision => 0x1000,
+            MemRegion::Collision => 0x4000,
             // Everything left over at the top of RAM.
             MemRegion::Heap => RAM_SIZE - MemRegion::Heap.base(),
         }
@@ -173,8 +178,8 @@ pub const COLLISION_RAM_BASE: usize = MemRegion::Collision.base();
 /// RAM base address of general-purpose/heap space.
 pub const HEAP_RAM_BASE: usize = MemRegion::Heap.base();
 
-// Compile-time guard: the memory map must fit in RAM. Resizing a region so the map
-// overflows 64 KiB fails the build here instead of silently corrupting addresses.
+// Compile-time guard: the memory map must fit the address space. Resizing a region so
+// the map overflows fails the build here instead of silently corrupting addresses.
 const _: () = assert!(MemRegion::Heap.base() + MemRegion::Heap.span() == RAM_SIZE);
 
 #[cfg(test)]
@@ -190,12 +195,12 @@ mod tests {
             (MemRegion::Work, 0x0000),
             (MemRegion::SpriteSheet, 0x4000),
             (MemRegion::Map, 0x8000),
-            (MemRegion::Palette, 0x9000),
-            (MemRegion::Sfx, 0x9100),
-            (MemRegion::Music, 0x9500),
-            (MemRegion::Rtc, 0x9600),
-            (MemRegion::Collision, 0x9603),
-            (MemRegion::Heap, 0xA603),
+            (MemRegion::Palette, 0xC000),
+            (MemRegion::Sfx, 0xC100),
+            (MemRegion::Music, 0xC500),
+            (MemRegion::Rtc, 0xC600),
+            (MemRegion::Collision, 0xC603),
+            (MemRegion::Heap, 0x10603),
         ];
 
         for (region, want) in expected {
@@ -223,6 +228,9 @@ mod tests {
             prev_end = base + region.span();
             prev = region;
         }
-        assert_eq!(prev_end, RAM_SIZE, "map does not exactly fill RAM");
+        assert_eq!(
+            prev_end, RAM_SIZE,
+            "map does not exactly fill the address space"
+        );
     }
 }

@@ -1,4 +1,7 @@
-use caiven_core::memory::{MUSIC_RAM_BASE, RTC_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE};
+use caiven_core::memory::{
+    COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, MUSIC_RAM_BASE, RTC_RAM_BASE, SFX_RAM_BASE,
+    SPRITE_SHEET_RAM_BASE,
+};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::vm::audio::{MUSIC_VOICE_CH0, MUSIC_VOICE_CH1, SFX_POOL_LEN, SFX_POOL_START};
@@ -2470,4 +2473,42 @@ fn widescreen_bounds_and_text_width() {
     assert_ne!(read_rgba(&vm, 0, 1), [200, 60, 70, 255]);
     // 24 tiles across, the width the charter's spec table names.
     assert_eq!(config.width / 8, 24);
+}
+
+/// The map is 128 × 128 tiles, and its collision layer is its companion of the
+/// same size: the far corner must be addressable, one tile past it must be
+/// dropped rather than wrap onto the next row, and the two layers must not
+/// overlap now that both regions are four times bigger.
+#[test]
+fn map_bounds_and_collision_companion_size() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    assert_eq!((MAP_W, MAP_H), (128, 128));
+
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_tile(127, 127, 9)
+          set_tile(128, 0, 9)
+          set_collision(127, 127, 1)
+          set_collision(0, 0, 1)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    assert_eq!(vm.peek_memory(MAP_RAM_BASE + 127 * MAP_W + 127), 9);
+    assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 127 * MAP_W + 127), 1);
+    // x = 128 is off the map; writing it must not wrap onto row 1.
+    assert_eq!(vm.peek_memory(MAP_RAM_BASE + MAP_W), 0);
+    // The two layers must not overlap: writing collision (0, 0) would land on
+    // the map's own last row if the regions were still sized for a 64 × 64 map.
+    assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
+    assert_eq!(vm.peek_memory(MAP_RAM_BASE), 0);
 }

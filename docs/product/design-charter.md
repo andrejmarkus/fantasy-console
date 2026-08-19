@@ -87,7 +87,7 @@ Target hardware:
 | **Frame rate** | 60 Hz fixed | Non-negotiable for game feel. |
 | **Audio** | 6 voices: 4 typed music (2 pulse, 1 triangle, 1 noise) + 2 dedicated sfx | Typed channels make the tracker four scannable columns and answer "which channel?" by timbre. Reserved sfx voices mean a jump sound can never cut the melody — the most confusing audio bug a beginner meets. Classic consoles stole channels; authenticity loses to one-sitting. |
 | **Input** | 4 directions + 2 actions + Select; START reserved | Retro-correct, works on handhelds, and spares every cart a pointer-input branch. |
-| **RAM** | 64 KiB | Screen, map and collision occupy their own regions, so widening them does not eat guest RAM. |
+| **RAM** | 64 KiB general purpose | Screen, map and collision occupy their own regions outside it, so widening them does not eat the memory a cart writes its own data into. Total addressable space is 96 KiB. |
 | **Save** | one blob (`save_data` / `load_data`) | Two save APIs violate "one obvious way". The blob is table-shaped, real Lua, and transferable. |
 | **Watchdog** | per-frame execution budget | An infinite loop must fail with a line number and a plain-language message, not hang the console. |
 
@@ -216,9 +216,9 @@ math. Deciding the split is Phase 2 work; no module is edited by this charter.
 
 ## Appendix B — status
 
-The hardware table in §4 is **target state**. The 192 × 128 screen has landed
-(item 2.1). The code still carries the pre-redesign numbers everywhere else
-(64 × 64 map, 8 voices with a legacy sfx voice, numeric bank ids,
-`dset`/`dget`). The redesign lands phase by phase; the
+The hardware table in §4 is **target state**. The 192 × 128 screen (item 2.1)
+and the 128 × 128 map (item 2.2) have landed. The code still carries the
+pre-redesign numbers everywhere else (8 voices with a legacy sfx voice, numeric
+bank ids, `dset`/`dget`). The redesign lands phase by phase; the
 charter is what those phases are steering toward, and is authoritative in any
 disagreement with the code.

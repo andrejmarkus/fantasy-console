@@ -64,16 +64,31 @@ export const defaultSprite = [
 
 export const MEMORY = {
   sprites: 0x4000, map: 0x8000,
-  palette: 0x9000, sfx: 0x9100, music: 0x9500, collision: 0x9603,
+  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC603,
 } as const;
 
-export const COLLISION_LEN = 64 * 64;
+/** Total addressable memory. Mirrors `caiven_core::memory::RAM_SIZE`. */
+export const RAM_SIZE = 98304;
 
 /** Console framebuffer size. Mirrors `caiven_core::memory::SCREEN_WIDTH`/`SCREEN_HEIGHT`. */
 export const SCREEN_WIDTH = 192;
 export const SCREEN_HEIGHT = 128;
 /** Framebuffer byte length in RGBA. */
 export const SCREEN_RGBA_LEN = SCREEN_WIDTH * SCREEN_HEIGHT * 4;
+
+/** Tile map size in tiles. Mirrors `caiven_core::memory::MAP_W`/`MAP_H`. */
+export const MAP_W = 128;
+export const MAP_H = 128;
+/** Map/collision byte length — one byte per cell. */
+export const MAP_LEN = MAP_W * MAP_H;
+export const COLLISION_LEN = MAP_LEN;
+/** Tile edge in pixels; the map editor renders at 1:1 tile pixels. */
+export const TILE_SIZE = 8;
+export const MAP_PX_W = MAP_W * TILE_SIZE;
+export const MAP_PX_H = MAP_H * TILE_SIZE;
+/** Size of one console screen in tiles — the map editor's screen grid. */
+export const SCREEN_TILES_W = SCREEN_WIDTH / TILE_SIZE;
+export const SCREEN_TILES_H = SCREEN_HEIGHT / TILE_SIZE;
 
 /** Mirrors `caiven_core::builtin_collision_types()` for the browser fallback. */
 export const defaultCollisionTypes: CollisionType[] = [

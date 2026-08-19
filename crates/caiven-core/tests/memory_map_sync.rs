@@ -9,7 +9,7 @@
 //! found in that file, and the value `MemRegion` actually expects — that's
 //! the fix.
 
-use caiven_core::memory::{MemRegion, SCREEN_HEIGHT, SCREEN_WIDTH};
+use caiven_core::memory::{MAP_H, MAP_W, MemRegion, RAM_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH};
 use regex::Regex;
 
 const IPC_TS: &str = include_str!("../../caiven-studio-ui/src/lib/ipc.ts");
@@ -140,4 +140,38 @@ fn ipc_ts_screen_size_matches_memory() {
             "ipc.ts {name}: found {got}, expected {want} from caiven_core::memory"
         );
     }
+}
+
+/// The map editor hand-copies the map's tile dimensions to size its canvas,
+/// its pointer math and its screen grid; a stale copy silently paints the
+/// wrong cell.
+#[test]
+fn ipc_ts_map_size_matches_memory() {
+    let re = Regex::new(r"export const (MAP_W|MAP_H) = (\d+);").expect("valid regex");
+    for (name, want) in [("MAP_W", MAP_W), ("MAP_H", MAP_H)] {
+        let found = re
+            .captures_iter(IPC_TS)
+            .find(|c| &c[1] == name)
+            .unwrap_or_else(|| panic!("ipc.ts: `export const {name}` not found"));
+        let got: usize = found[2].parse().expect("regex only captures digits");
+        assert_eq!(
+            got, want,
+            "ipc.ts {name}: found {got}, expected {want} from caiven_core::memory"
+        );
+    }
+}
+
+/// The drawer labels its memory tab with the total address space, and its
+/// hex-dump paging is sized from the same number.
+#[test]
+fn ipc_ts_ram_size_matches_memory() {
+    let re = Regex::new(r"export const RAM_SIZE = (\d+);").expect("valid regex");
+    let found = re
+        .captures(IPC_TS)
+        .expect("ipc.ts: `export const RAM_SIZE` not found");
+    let got: usize = found[1].parse().expect("regex only captures digits");
+    assert_eq!(
+        got, RAM_SIZE,
+        "ipc.ts RAM_SIZE: found {got}, expected {RAM_SIZE} from caiven_core::memory"
+    );
 }

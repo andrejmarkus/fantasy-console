@@ -200,11 +200,11 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | :-----------------| :------------------------------------------------------------------------------------|
 | **Script engine** | Lua 5.4 via `mlua` (vendored)                                                     |
 | **Resolution**    | 192×128, 24×16 tiles (upscaled 4×)                                                |
-| **RAM**           | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
+| **RAM**           | 64 KiB general purpose (Work + Heap); the asset windows below are mapped alongside it, not carved out of it. Script state lives in the Lua VM, not guest RAM |
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
 | **Palette**       | 16 colors                                                                         |
 | **Sprites**       | 256 × 8×8 pixels per bank; bank 0 always available                                |
-| **Map**           | 64×64 tiles per bank; bank 0 always available                                     |
+| **Map**           | 128×128 tiles per bank; bank 0 always available                                   |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
 as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
@@ -216,10 +216,10 @@ fixed sprite/map RAM windows. Changes made through RAM survive later switches.
 | :---------------| :----------------------------------------------------------------|
 | `0x0000–0x3FFF` | Unused / reserved                                              |
 | `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel)           |
-| `0x8000–0x8FFF` | Tilemap 64×64 (1 byte/cell)                                    |
-| `0x9000–0x90FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
-| `0x9100–0x94FF` | SFX bank (16 × 64 bytes)                                       |
-| `0x9500–0x95FF` | Music bank (8 × 32 bytes)                                      |
-| `0x9600–0x9602` | RTC (hour, minute, second)                                     |
-| `0x9603–0xA602` | Collision — 64×64 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0xA603–0xFFFF` | Reserved                                                       |
+| `0x8000–0xBFFF` | Tilemap 128×128 (1 byte/cell)                                  |
+| `0xC000–0xC0FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
+| `0xC100–0xC4FF` | SFX bank (16 × 64 bytes)                                       |
+| `0xC500–0xC5FF` | Music bank (8 × 32 bytes)                                      |
+| `0xC600–0xC602` | RTC (hour, minute, second)                                     |
+| `0xC603–0x10602` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0x10603–0x17FFF` | Reserved                                                     |

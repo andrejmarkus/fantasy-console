@@ -23,7 +23,7 @@
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
-  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
+  import { MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
 
   type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
   type MapRegion = { x0: number; y0: number; w: number; h: number };
@@ -176,7 +176,7 @@
   let spacePan = $state(false);
   let mapWorkEl: HTMLDivElement | undefined = $state();
   let minimapCanvas: HTMLCanvasElement | undefined = $state();
-  // Fraction (0..1) of the 64x64 tile map currently visible in .map-work's scroll viewport.
+  // Fraction (0..1) of the tile map currently visible in .map-work's scroll viewport.
   let mapViewport = $state({ x: 0, y: 0, w: 1, h: 1 });
   let docQuery = $state('');
   let docCategory = $state<string | null>(null);
@@ -525,7 +525,7 @@
   function regionTiles(region: MapRegion): number[] {
     const tiles: number[] = [];
     for (let dy = 0; dy < region.h; dy += 1) for (let dx = 0; dx < region.w; dx += 1) {
-      tiles.push(map[(region.y0 + dy) * 64 + (region.x0 + dx)] ?? 0);
+      tiles.push(map[(region.y0 + dy) * MAP_W + (region.x0 + dx)] ?? 0);
     }
     return tiles;
   }
@@ -540,7 +540,7 @@
     copySelection();
     const cells: { offset: number; tile: number }[] = [];
     for (let dy = 0; dy < mapSelection.h; dy += 1) for (let dx = 0; dx < mapSelection.w; dx += 1) {
-      cells.push({ offset: (mapSelection.y0 + dy) * 64 + (mapSelection.x0 + dx), tile: 0 });
+      cells.push({ offset: (mapSelection.y0 + dy) * MAP_W + (mapSelection.x0 + dx), tile: 0 });
     }
     // One commitMap call is one history entry, so undo restores the whole cut region.
     commitMap(cells);
@@ -593,12 +593,13 @@
   // without necessarily moving scrollLeft/scrollTop (so no native 'scroll' fires).
   function updateMapViewport() {
     if (!mapWorkEl) return;
-    const total = 512 * mapZoom;
+    const totalX = MAP_PX_W * mapZoom;
+    const totalY = MAP_PX_H * mapZoom;
     mapViewport = {
-      x: mapWorkEl.scrollLeft / total,
-      y: mapWorkEl.scrollTop / total,
-      w: Math.min(1, mapWorkEl.clientWidth / total),
-      h: Math.min(1, mapWorkEl.clientHeight / total),
+      x: mapWorkEl.scrollLeft / totalX,
+      y: mapWorkEl.scrollTop / totalY,
+      w: Math.min(1, mapWorkEl.clientWidth / totalX),
+      h: Math.min(1, mapWorkEl.clientHeight / totalY),
     };
   }
 
@@ -611,20 +612,20 @@
     if (!minimapCanvas) return;
     const context = minimapCanvas.getContext('2d');
     if (!context) return;
-    const image = context.createImageData(64, 64);
+    const image = context.createImageData(MAP_W, MAP_H);
     const colors = palette.map((hex) => {
       const value = hex || '#000000';
       return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 255];
     });
-    for (let y = 0; y < 64; y += 1) for (let x = 0; x < 64; x += 1) {
-      const tile = map[y * 64 + x] ?? 0;
+    for (let y = 0; y < MAP_H; y += 1) for (let x = 0; x < MAP_W; x += 1) {
+      const tile = map[y * MAP_W + x] ?? 0;
       if (tile === 0) continue;
       // Top-left pixel stands in for the whole tile — enough to read shapes at
       // this scale, and far cheaper than averaging all 64 pixels per tile.
       const paletteIndex = spriteSheet[tile * 64] ?? 0;
       if (paletteIndex === 0) continue;
       const rgba = colors[paletteIndex] ?? colors[0] ?? [0, 0, 0, 255];
-      image.data.set(rgba, (y * 64 + x) * 4);
+      image.data.set(rgba, (y * MAP_W + x) * 4);
     }
     context.putImageData(image, 0, 0);
   }
@@ -636,9 +637,10 @@
 
   function recenterMapAt(fx: number, fy: number) {
     if (!mapWorkEl) return;
-    const total = 512 * mapZoom;
-    mapWorkEl.scrollLeft = Math.max(0, fx * total - mapWorkEl.clientWidth / 2);
-    mapWorkEl.scrollTop = Math.max(0, fy * total - mapWorkEl.clientHeight / 2);
+    const totalX = MAP_PX_W * mapZoom;
+    const totalY = MAP_PX_H * mapZoom;
+    mapWorkEl.scrollLeft = Math.max(0, fx * totalX - mapWorkEl.clientWidth / 2);
+    mapWorkEl.scrollTop = Math.max(0, fy * totalY - mapWorkEl.clientHeight / 2);
     updateMapViewport();
   }
 
@@ -1022,7 +1024,7 @@
           <button class="danger" disabled={activeBank === 0} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
         </div>
       {/if}
-      <code>{screen === 'sprites' ? `${assetStats[0]?.used ?? 0} of 256 used` : screen === 'map' ? '64 × 64 tiles' : '16 colors'}</code>
+      <code>{screen === 'sprites' ? `${assetStats[0]?.used ?? 0} of 256 used` : screen === 'map' ? `${MAP_W} × ${MAP_H} tiles` : '16 colors'}</code>
     </nav>
   {:else if ['sfx', 'music'].includes(screen)}
     <nav class="subnav">
@@ -1303,7 +1305,7 @@
       <aside class="map-inspector">
         <span class="eyebrow">Minimap</span>
         <div class="minimap" onclick={recenterFromMinimap} onkeydown={recenterFromMinimapKey} role="button" tabindex="0" aria-label="Minimap — click to jump to a location">
-          <canvas bind:this={minimapCanvas} width="64" height="64"></canvas>
+          <canvas bind:this={minimapCanvas} width={MAP_W} height={MAP_H}></canvas>
           <div
             class="minimap-viewport"
             style={`left:${mapViewport.x * 100}%; top:${mapViewport.y * 100}%; width:${mapViewport.w * 100}%; height:${mapViewport.h * 100}%`}
@@ -1351,7 +1353,7 @@
           {/each}
         </div>
         <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '—'}</code></div>
-        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * 64 + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '—'}</code></div>
+        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * MAP_W + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '—'}</code></div>
         <div class="inspector-row">
           <span>Selected</span>
           <code>{mapStamp ? `${mapStamp.w} × ${mapStamp.h} stamp` : `${selectedTile.toString().padStart(3,'0')} · 0x${selectedTile.toString(16).padStart(2,'0')}`}</code>

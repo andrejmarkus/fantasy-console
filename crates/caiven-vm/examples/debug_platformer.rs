@@ -55,16 +55,16 @@ fn dump_player(vm: &mut Vm) {
     let fields = vm.expand_debug_node(&node_id).unwrap_or_default();
     let mut out = String::from("player {");
     for (k, v) in &fields {
-        if k == "pos" {
-            if let Some(pos_id) = &v.node_id {
-                let pos_fields = vm.expand_debug_node(pos_id).unwrap_or_default();
-                out.push_str("pos={");
-                for (pk, pv) in &pos_fields {
-                    out.push_str(&format!("{pk}={} ", pv.text));
-                }
-                out.push('}');
-                continue;
+        if k == "pos"
+            && let Some(pos_id) = &v.node_id
+        {
+            let pos_fields = vm.expand_debug_node(pos_id).unwrap_or_default();
+            out.push_str("pos={");
+            for (pk, pv) in &pos_fields {
+                out.push_str(&format!("{pk}={} ", pv.text));
             }
+            out.push('}');
+            continue;
         }
         out.push_str(&format!("{k}={} ", v.text));
     }

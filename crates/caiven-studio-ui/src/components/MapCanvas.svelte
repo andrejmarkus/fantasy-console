@@ -3,6 +3,9 @@
   import {
     collisionCellEdits, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
   } from '../lib/editorMath';
+  import {
+    MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, SCREEN_TILES_H, SCREEN_TILES_W, TILE_SIZE,
+  } from '../lib/ipc';
   import type { CollisionType } from '../types';
 
   type MapLayer = 'tiles' | 'collision';
@@ -52,12 +55,19 @@
   let selectCurrent = $state<number | null>(null);
   const selectRegion = $derived.by((): MapRegion | null => {
     if (selectAnchor === null || selectCurrent === null) return null;
-    const ax = selectAnchor % 64, ay = Math.floor(selectAnchor / 64);
-    const cx = selectCurrent % 64, cy = Math.floor(selectCurrent / 64);
+    const ax = selectAnchor % MAP_W, ay = Math.floor(selectAnchor / MAP_W);
+    const cx = selectCurrent % MAP_W, cy = Math.floor(selectCurrent / MAP_W);
     const x0 = Math.min(ax, cx), x1 = Math.max(ax, cx);
     const y0 = Math.min(ay, cy), y1 = Math.max(ay, cy);
     return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
   });
+
+  // The map is not a whole number of screens wide (128 tiles / 24 per screen),
+  // so the right-hand screen column is a partial one and is drawn as such.
+  const screenCols = Math.ceil(MAP_W / SCREEN_TILES_W);
+  const screenRows = Math.ceil(MAP_H / SCREEN_TILES_H);
+  const screenPctX = (SCREEN_TILES_W / MAP_W) * 100;
+  const screenPctY = (SCREEN_TILES_H / MAP_H) * 100;
 
   $effect(() => {
     if (tool !== 'select') { selectAnchor = null; selectCurrent = null; }
@@ -72,42 +82,93 @@
     return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 255];
   }
 
+  // The full-map image is kept between renders so a paint stroke can repaint
+  // only the tiles it touched. Rebuilding all 16384 tiles costs ~23 ms, which
+  // a per-pointer-move redraw cannot afford; a dirty repaint is a handful of
+  // tiles regardless of map size.
+  let buffer: ImageData | undefined;
+
+  function paintTile(image: ImageData, colors: [number, number, number, number][], tileX: number, tileY: number) {
+    const offset = tileY * MAP_W + tileX;
+    const tile = tileDraft.get(offset) ?? map[offset] ?? 0;
+    const sheet = tile !== 0 ? tile * 64 : -1;
+    for (let pixelY = 0; pixelY < TILE_SIZE; pixelY += 1) for (let pixelX = 0; pixelX < TILE_SIZE; pixelX += 1) {
+      const at = ((tileY * TILE_SIZE + pixelY) * MAP_PX_W + tileX * TILE_SIZE + pixelX) * 4;
+      const paletteIndex = sheet < 0 ? 0 : spriteSheet[sheet + pixelY * TILE_SIZE + pixelX] ?? 0;
+      // Tile 0 and palette index 0 are both "nothing here" — clear to the
+      // canvas's own black so a repaint erases whatever was there before.
+      const rgba = paletteIndex === 0 ? [0, 0, 0, 255] : colors[paletteIndex] ?? colors[0] ?? [0, 0, 0, 255];
+      image.data.set(rgba, at);
+    }
+    const value = collisionDraft.get(offset) ?? collision[offset] ?? 0;
+    const ctype = value !== 0 ? collisionTypes.find((t) => t.id === value) : undefined;
+    if (!showCollision || !ctype) return;
+    const tint = ctype.color;
+    const hatch = ctype.shape === 'none';
+    for (let pixelY = 0; pixelY < TILE_SIZE; pixelY += 1) for (let pixelX = 0; pixelX < TILE_SIZE; pixelX += 1) {
+      const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
+      const dot = hatch && (pixelX + pixelY) % 4 === 0;
+      const at = ((tileY * TILE_SIZE + pixelY) * MAP_PX_W + tileX * TILE_SIZE + pixelX) * 4;
+      const alpha = border || dot ? 0.85 : 0.3;
+      image.data[at] = image.data[at] * (1 - alpha) + tint[0] * alpha;
+      image.data[at + 1] = image.data[at + 1] * (1 - alpha) + tint[1] * alpha;
+      image.data[at + 2] = image.data[at + 2] * (1 - alpha) + tint[2] * alpha;
+      image.data[at + 3] = 255;
+    }
+  }
+
   function render() {
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    const image = context.createImageData(512, 512);
+    const image = context.createImageData(MAP_PX_W, MAP_PX_H);
     const colors = palette.map(color);
-    for (let tileY = 0; tileY < 64; tileY += 1) for (let tileX = 0; tileX < 64; tileX += 1) {
-      const offset = tileY * 64 + tileX;
-      const tile = tileDraft.get(offset) ?? map[offset] ?? 0;
-      if (tile !== 0) {
-        for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
-          const paletteIndex = spriteSheet[tile * 64 + pixelY * 8 + pixelX] ?? 0;
-          if (paletteIndex === 0) continue;
-          const rgba = colors[paletteIndex] ?? colors[0] ?? [0, 0, 0, 255];
-          const at = ((tileY * 8 + pixelY) * 512 + tileX * 8 + pixelX) * 4;
-          image.data.set(rgba, at);
-        }
-      }
-      const value = collisionDraft.get(offset) ?? collision[offset] ?? 0;
-      const ctype = value !== 0 ? collisionTypes.find((t) => t.id === value) : undefined;
-      if (showCollision && ctype) {
-        const tint = ctype.color;
-        const hatch = ctype.shape === 'none';
-        for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
-          const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
-          const dot = hatch && (pixelX + pixelY) % 4 === 0;
-          const at = ((tileY * 8 + pixelY) * 512 + tileX * 8 + pixelX) * 4;
-          const alpha = border || dot ? 0.85 : 0.3;
-          image.data[at] = image.data[at] * (1 - alpha) + tint[0] * alpha;
-          image.data[at + 1] = image.data[at + 1] * (1 - alpha) + tint[1] * alpha;
-          image.data[at + 2] = image.data[at + 2] * (1 - alpha) + tint[2] * alpha;
-          image.data[at + 3] = 255;
-        }
-      }
+    for (let tileY = 0; tileY < MAP_H; tileY += 1) for (let tileX = 0; tileX < MAP_W; tileX += 1) {
+      paintTile(image, colors, tileX, tileY);
     }
+    buffer = image;
     context.putImageData(image, 0, 0);
+  }
+
+  // Cells the in-progress stroke has already painted, so the next repaint can
+  // also cover the ones it is about to stop painting (line/rect rebuild their
+  // preview from the anchor on every move).
+  let paintedCells = new Set<number>();
+
+  // Repaints just the cells the current stroke touches, adding the ones the
+  // previous repaint painted so an abandoned preview is erased.
+  function renderStroke() {
+    const next = new Set<number>([...tileDraft.keys(), ...collisionDraft.keys()]);
+    const dirty = new Set<number>(paintedCells);
+    for (const offset of next) dirty.add(offset);
+    paintedCells = next;
+    renderCells(dirty);
+  }
+
+  // Repaints just the given cell offsets, plus whatever the previous draft
+  // painted (so a line/rect preview erases its last position). Falls back to a
+  // full render before the first one has built the buffer.
+  function renderCells(offsets: Iterable<number>) {
+    if (!canvas || !buffer) { render(); return; }
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const colors = palette.map(color);
+    let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
+    for (const offset of offsets) {
+      const tileX = offset % MAP_W, tileY = Math.floor(offset / MAP_W);
+      if (tileX < 0 || tileY < 0 || tileX >= MAP_W || tileY >= MAP_H) continue;
+      paintTile(buffer, colors, tileX, tileY);
+      if (tileX < x0) x0 = tileX;
+      if (tileY < y0) y0 = tileY;
+      if (tileX > x1) x1 = tileX;
+      if (tileY > y1) y1 = tileY;
+    }
+    if (x1 < 0) return;
+    context.putImageData(
+      buffer, 0, 0,
+      x0 * TILE_SIZE, y0 * TILE_SIZE,
+      (x1 - x0 + 1) * TILE_SIZE, (y1 - y0 + 1) * TILE_SIZE,
+    );
   }
 
   // Coalesces redraws triggered by prop changes (bank switch, external map edits) that
@@ -125,6 +186,7 @@
 
   $effect(() => {
     map; spriteSheet; palette; collision; collisionTypes; showCollision; tileDraft; collisionDraft; canvas;
+    collisionWorking = null;
     scheduleRender();
   });
 
@@ -134,14 +196,14 @@
 
   function pointerCell(event: PointerEvent) {
     const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, Math.min(63, Math.floor(((event.clientX - rect.left) / rect.width) * 64)));
-    const y = Math.max(0, Math.min(63, Math.floor(((event.clientY - rect.top) / rect.height) * 64)));
-    return y * 64 + x;
+    const x = Math.max(0, Math.min(MAP_W - 1, Math.floor(((event.clientX - rect.left) / rect.width) * MAP_W)));
+    const y = Math.max(0, Math.min(MAP_H - 1, Math.floor(((event.clientY - rect.top) / rect.height) * MAP_H)));
+    return y * MAP_W + x;
   }
 
   function reportHover(event: PointerEvent) {
     const at = pointerCell(event);
-    onHover?.({ x: at % 64, y: Math.floor(at / 64), tile: tileDraft.get(at) ?? map[at] ?? 0 });
+    onHover?.({ x: at % MAP_W, y: Math.floor(at / MAP_W), tile: tileDraft.get(at) ?? map[at] ?? 0 });
   }
 
   // The single-tile value used by tools that don't paint a footprint (fill picks
@@ -155,9 +217,17 @@
     return tool === 'erase' ? 0 : collisionBrush;
   }
 
+  // The collision layer's flood/stroke maths want a plain array of the current
+  // values, drafts included. Copying all 16384 cells on every pointer move is
+  // what makes a collision drag stutter, so the copy is made once per stroke
+  // and then kept in step with the draft; `null` means "rebuild on next use".
+  let collisionWorking: number[] | null = null;
+
   function collisionValues(): number[] {
+    if (collisionWorking) return collisionWorking;
     const values = [...collision];
     for (const [offset, value] of collisionDraft) values[offset] = value;
+    collisionWorking = values;
     return values;
   }
 
@@ -165,12 +235,12 @@
   // (top-left), clipped to the map bounds. Erasing clears every cell in the
   // footprint to 0 regardless of what the stamp's tiles are.
   function stampFootprint(base: number): Cell[] {
-    const baseX = base % 64, baseY = Math.floor(base / 64);
+    const baseX = base % MAP_W, baseY = Math.floor(base / MAP_W);
     const cells: Cell[] = [];
     for (let dy = 0; dy < stamp.h; dy += 1) for (let dx = 0; dx < stamp.w; dx += 1) {
       const x = baseX + dx, y = baseY + dy;
-      if (x >= 64 || y >= 64) continue;
-      cells.push({ offset: y * 64 + x, tile: tool === 'erase' ? 0 : stamp.tiles[dy * stamp.w + dx] });
+      if (x >= MAP_W || y >= MAP_H) continue;
+      cells.push({ offset: y * MAP_W + x, tile: tool === 'erase' ? 0 : stamp.tiles[dy * stamp.w + dx] });
     }
     return cells;
   }
@@ -189,8 +259,10 @@
       return;
     }
     const next = new Map(collisionDraft);
-    for (const edit of collisionCellEdits(collisionValues(), offsets, activeCollisionBrush())) {
+    const values = collisionValues();
+    for (const edit of collisionCellEdits(values, offsets, activeCollisionBrush())) {
       next.set(edit.offset, edit.value);
+      values[edit.offset] = edit.value;
     }
     collisionDraft = next;
   }
@@ -201,12 +273,13 @@
     const drawTool: StrokeTool = tool as Exclude<MapTool, 'pick' | 'select'>;
     const values = layer === 'tiles' ? map : collisionValues();
     const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
-    const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, 64, 64);
+    const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, MAP_W, MAP_H);
     // line/rect recompute the whole shape from anchor each move (live preview), so the
     // draft is replaced rather than accumulated; paint/erase/fill accumulate across a drag.
     if (tool === 'line' || tool === 'rect') {
       tileDraft = new Map();
       collisionDraft = new Map();
+      collisionWorking = null; // the discarded preview is still in the working copy
     }
     applyOffsets(offsets);
   }
@@ -238,6 +311,7 @@
     }
     tileDraft = new Map();
     collisionDraft = new Map();
+    collisionWorking = null;
     anchor = at;
     previousCell = at;
     drawing = true;
@@ -247,8 +321,9 @@
       return;
     }
     canvas.setPointerCapture(event.pointerId);
+    paintedCells = new Set();
     drawStroke(at);
-    render(); // paint inline — see move() for why this can't wait for scheduleRender()
+    renderStroke(); // paint inline — see move() for why this can't wait for scheduleRender()
   }
 
   function move(event: PointerEvent) {
@@ -266,11 +341,11 @@
     // for the whole drag) against a synchronous one (paints every move) in the same build.
     if (tool === 'rect' || tool === 'line') {
       drawStroke(at);
-      render();
+      renderStroke();
     } else if ((tool === 'pencil' || tool === 'erase') && previousCell !== at) {
       drawStroke(at);
       previousCell = at;
-      render();
+      renderStroke();
     }
   }
 
@@ -283,22 +358,28 @@
     if (edits.length) onCollisionStroke(edits);
     tileDraft = new Map();
     collisionDraft = new Map();
+    paintedCells = new Set();
+    collisionWorking = null;
     anchor = null;
     previousCell = null;
     if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
   }
 </script>
 
-<div class="map-canvas-wrap" data-map-canvas style={`--map-zoom:${zoom}`}>
+<div
+  class="map-canvas-wrap"
+  data-map-canvas
+  style={`--map-zoom:${zoom}; --map-px-w:${MAP_PX_W}px; --map-px-h:${MAP_PX_H}px; --tile-pct-x:${100 / MAP_W}%; --tile-pct-y:${100 / MAP_H}%; --screen-pct-x:${screenPctX}%; --screen-pct-y:${screenPctY}%`}
+>
   <canvas
     bind:this={canvas}
     class="map-canvas"
     class:collision={layer === 'collision'}
     class:picking={tool === 'pick'}
     class:erasing={tool === 'erase'}
-    width="512"
-    height="512"
-    aria-label="64 by 64 tile map"
+    width={MAP_PX_W}
+    height={MAP_PX_H}
+    aria-label={`${MAP_W} by ${MAP_H} tile map`}
     onpointerdown={begin}
     onpointermove={move}
     onpointerup={finish}
@@ -308,28 +389,28 @@
     oncontextmenu={(event) => event.preventDefault()}
   ></canvas>
   <div class="map-grid-overlay" aria-hidden="true"></div>
-  <!-- The heavier lines in map-grid-overlay already mark every 16-tile screen
+  <!-- The heavier lines in map-grid-overlay already mark every screen
        boundary; screen 0,0 gets the highlighted box because it's the camera a
        cart boots into, the rest just get a quiet coordinate label. -->
   <div class="map-screen-region" aria-hidden="true"><span>screen 0,0</span></div>
-  {#each Array(16) as _, i}
-    {@const sx = i % 4}
-    {@const sy = Math.floor(i / 4)}
+  {#each Array(screenCols * screenRows) as _, i}
+    {@const sx = i % screenCols}
+    {@const sy = Math.floor(i / screenCols)}
     {#if sx !== 0 || sy !== 0}
-      <span class="screen-label" aria-hidden="true" style={`left:${sx * 25}%; top:${sy * 25}%`}>{sx},{sy}</span>
+      <span class="screen-label" aria-hidden="true" style={`left:${sx * screenPctX}%; top:${sy * screenPctY}%`}>{sx},{sy}</span>
     {/if}
   {/each}
   {#if selectRegion}
     <div
       class="map-selection"
       aria-hidden="true"
-      style={`left:${(selectRegion.x0 / 64) * 100}%; top:${(selectRegion.y0 / 64) * 100}%; width:${(selectRegion.w / 64) * 100}%; height:${(selectRegion.h / 64) * 100}%`}
+      style={`left:${(selectRegion.x0 / MAP_W) * 100}%; top:${(selectRegion.y0 / MAP_H) * 100}%; width:${(selectRegion.w / MAP_W) * 100}%; height:${(selectRegion.h / MAP_H) * 100}%`}
     ></div>
   {/if}
 </div>
 
 <style>
-  .map-canvas-wrap { width: calc(512px * var(--map-zoom)); height: calc(512px * var(--map-zoom)); flex: none; position: relative; border: 1px solid var(--color-void-600); box-shadow: var(--shadow-lg); background: #000; }
+  .map-canvas-wrap { width: calc(var(--map-px-w) * var(--map-zoom)); height: calc(var(--map-px-h) * var(--map-zoom)); flex: none; position: relative; border: 1px solid var(--color-void-600); box-shadow: var(--shadow-lg); background: #000; }
   .map-canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
   .map-canvas.collision { cursor: cell; }
   .map-canvas.picking { cursor: copy; }
@@ -343,9 +424,9 @@
       linear-gradient(to bottom, rgba(96,94,94,.35) 1px, transparent 1px),
       linear-gradient(to right, rgba(245,242,242,.28) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(245,242,242,.28) 1px, transparent 1px);
-    background-size: calc(100% / 64) 100%, 100% calc(100% / 64), calc(100% / 4) 100%, 100% calc(100% / 4);
+    background-size: var(--tile-pct-x) 100%, 100% var(--tile-pct-y), var(--screen-pct-x) 100%, 100% var(--screen-pct-y);
   }
-  .map-screen-region { left: 0; top: 0; width: 25%; height: 25%; border: 2px solid var(--color-ember); box-shadow: var(--shadow-glow-ember); }
+  .map-screen-region { left: 0; top: 0; width: var(--screen-pct-x); height: var(--screen-pct-y); border: 2px solid var(--color-ember); box-shadow: var(--shadow-glow-ember); }
   .map-screen-region span { position: absolute; left: 3px; top: 3px; color: var(--color-ember); font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
   .screen-label { position: absolute; padding: 2px 3px; color: rgba(245,242,242,.55); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; pointer-events: none; }
   .map-selection { position: absolute; border: 1px dashed var(--color-ember); background: rgba(254,176,93,.12); pointer-events: none; }

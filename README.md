@@ -54,7 +54,7 @@ end
 ## ✨ Features
 
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required)
-- 🎨 **Palette-based Graphics** — 192×128 resolution (24×16 tiles), 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera *(a 128×128 tilemap is approved and pending — see the [design charter](docs/product/design-charter.md))*
+- 🎨 **Palette-based Graphics** — 192×128 resolution (24×16 tiles), 16-color swappable palette; sprites, 128×128 tilemap, shape primitives, camera
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks
 - 🧰 **Gameplay Stdlib** — tweens, easing, AABB/tile collision, particles, sprite-frame animation — pure Lua, preloaded into every cart
 - 🖌️ **Caiven Studio** — Tauri 2 + Svelte 5 editor: live console, code and asset workspaces, diagnostics, command palette, publishing flow

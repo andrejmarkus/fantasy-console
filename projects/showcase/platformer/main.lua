@@ -1,6 +1,9 @@
 TILE = 8
-ROOM_TILES = 16
-ROOM_PX = TILE * ROOM_TILES -- 128
+-- One room is exactly one screen: 24 x 16 tiles at 192 x 128 pixels.
+ROOM_TILES_W = 24
+ROOM_TILES_H = 16
+ROOM_PX_W = TILE * ROOM_TILES_W -- 192
+ROOM_PX_H = TILE * ROOM_TILES_H -- 128
 
 SPR_BLANK = 0
 SPR_PLAYER_IDLE = 1
@@ -28,14 +31,16 @@ local function rect(x0, y0, x1, y1, col, spr)
   return { x0 = x0, y0 = y0, x1 = x1, y1 = y1, col = col, spr = spr }
 end
 
--- Room tile rects are in ROOM-LOCAL tile coordinates (0-15). paint_world()
--- offsets them by each room's (col, row) * ROOM_TILES before painting.
+-- Room tile rects are in ROOM-LOCAL tile coordinates (x 0-23, y 0-15).
+-- paint_world() offsets them by each room's (col, row) * room size before
+-- painting.
 ROOMS = {
   [1] = {
     col = 0, row = 0,
     tiles = {
-      rect(0, 14, 15, 15, "solid", SPR_GROUND),
+      rect(0, 14, 23, 15, "solid", SPR_GROUND),
       rect(6, 10, 8, 10, "solid", SPR_GROUND), -- tutorial hop platform
+      rect(15, 11, 17, 11, "solid", SPR_GROUND), -- second hop, a little lower
     },
     spawn = { x = 2 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 9 * TILE },
@@ -46,7 +51,9 @@ ROOMS = {
     tiles = {
       rect(0, 14, 5, 15, "solid", SPR_GROUND),
       rect(8, 14, 15, 15, "solid", SPR_GROUND),
+      rect(18, 14, 23, 15, "solid", SPR_GROUND),
       rect(6, 15, 7, 15, "hazard", SPR_SPIKE),
+      rect(16, 15, 17, 15, "hazard", SPR_SPIKE),
       rect(11, 11, 12, 11, "solid", SPR_GROUND),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
@@ -56,7 +63,7 @@ ROOMS = {
   [3] = {
     col = 2, row = 0,
     tiles = {
-      rect(0, 14, 15, 15, "solid", SPR_GROUND),
+      rect(0, 14, 23, 15, "solid", SPR_GROUND),
       rect(6, 4, 6, 13, "solid", SPR_GROUND),
       rect(9, 4, 9, 13, "solid", SPR_GROUND),
       -- "platform" (one-way) not "solid": a solid tile spanning both corridor
@@ -64,6 +71,9 @@ ROOMS = {
       -- through on the way up; one-way only blocks descending, so the climb
       -- passes through it and the player lands on top on the way back down.
       rect(7, 3, 8, 3, "platform", SPR_PLATFORM),
+      -- Descent route back to ground level on the right half of the room.
+      rect(13, 11, 15, 11, "platform", SPR_PLATFORM),
+      rect(18, 8, 20, 8, "solid", SPR_GROUND),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 2 * TILE },
@@ -72,8 +82,9 @@ ROOMS = {
   [4] = {
     col = 3, row = 0,
     tiles = {
-      rect(0, 14, 9, 15, "solid", SPR_GROUND),
+      rect(0, 14, 13, 15, "solid", SPR_GROUND),
       rect(2, 10, 6, 10, "platform", SPR_PLATFORM),
+      rect(9, 11, 11, 11, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 4 * TILE, y = 9 * TILE },
@@ -84,7 +95,11 @@ ROOMS = {
     tiles = {
       rect(0, 14, 4, 15, "solid", SPR_GROUND),
       rect(11, 14, 15, 15, "solid", SPR_GROUND),
+      rect(20, 14, 23, 15, "solid", SPR_GROUND),
       rect(5, 15, 10, 15, "hazard", SPR_SPIKE),
+      rect(16, 15, 19, 15, "hazard", SPR_SPIKE),
+      -- Stepping stone: the second spike field is too wide for a flat jump.
+      rect(17, 12, 18, 12, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 11 * TILE },
@@ -96,10 +111,12 @@ ROOMS = {
       rect(0, 14, 6, 14, "solid", SPR_GROUND),
       rect(0, 15, 6, 15, "solid", SPR_GROUND),
       rect(7, 13, 7, 13, "ramp_right", SPR_SLOPE_RIGHT),
-      rect(8, 13, 15, 13, "solid", SPR_GROUND),
-      rect(8, 14, 15, 15, "solid", SPR_GROUND),
+      rect(8, 13, 23, 13, "solid", SPR_GROUND),
+      rect(8, 14, 23, 15, "solid", SPR_GROUND),
       rect(12, 13, 12, 13, "hazard", SPR_SPIKE),
+      rect(19, 13, 19, 13, "hazard", SPR_SPIKE),
       rect(12, 10, 12, 10, "solid", SPR_GROUND),
+      rect(16, 10, 17, 10, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 12 * TILE, y = 9 * TILE },
@@ -115,7 +132,9 @@ ROOMS = {
       rect(9, 8, 9, 13, "solid", SPR_GROUND),
       rect(6, 10, 7, 10, "platform", SPR_PLATFORM),
       rect(5, 15, 8, 15, "hazard", SPR_SPIKE),
-      rect(10, 13, 15, 15, "solid", SPR_GROUND),
+      rect(10, 13, 23, 15, "solid", SPR_GROUND),
+      rect(17, 10, 19, 10, "platform", SPR_PLATFORM),
+      rect(21, 12, 22, 12, "hazard", SPR_SPIKE),
     },
     spawn = { x = 1 * TILE, y = 12 * TILE },
     berry = { x = 6 * TILE, y = 8 * TILE },
@@ -124,19 +143,19 @@ ROOMS = {
   [8] = {
     col = 3, row = 1,
     tiles = {
-      rect(0, 13, 15, 15, "solid", SPR_GROUND),
+      rect(0, 13, 23, 15, "solid", SPR_GROUND),
       rect(8, 15, 9, 15, "hazard", SPR_SPIKE),
       rect(10, 11, 10, 11, "solid", SPR_GROUND),
+      rect(16, 11, 17, 11, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 12 * TILE },
     berry = { x = 10 * TILE, y = 10 * TILE },
-    flag = { x = 13 * TILE, y = 11 * TILE },
+    flag = { x = 20 * TILE, y = 11 * TILE },
   },
 }
-
 local function paint_world()
   for _, room in ipairs(ROOMS) do
-    local ox, oy = room.col * ROOM_TILES, room.row * ROOM_TILES
+    local ox, oy = room.col * ROOM_TILES_W, room.row * ROOM_TILES_H
     for _, r in ipairs(room.tiles) do
       local col_id = collision_type_id(r.col)
       for ty = r.y0, r.y1 do
@@ -150,8 +169,8 @@ local function paint_world()
 end
 
 function room_at(px, py)
-  local col = math.floor(px / ROOM_PX)
-  local row = math.floor(py / ROOM_PX)
+  local col = math.floor(px / ROOM_PX_W)
+  local row = math.floor(py / ROOM_PX_H)
   for _, room in ipairs(ROOMS) do
     if room.col == col and room.row == row then return room end
   end
@@ -163,9 +182,9 @@ function update_camera(px, py)
   -- single frame before the nil-room death check (which runs before this,
   -- on the prior frame's position) catches it next frame — clamp so
   -- set_camera (u32 args) never sees a negative or out-of-grid coordinate.
-  local col = math.max(0, math.min(3, math.floor(px / ROOM_PX)))
-  local row = math.max(0, math.min(1, math.floor(py / ROOM_PX)))
-  set_camera(col * ROOM_PX, row * ROOM_PX)
+  local col = math.max(0, math.min(3, math.floor(px / ROOM_PX_W)))
+  local row = math.max(0, math.min(1, math.floor(py / ROOM_PX_H)))
+  set_camera(col * ROOM_PX_W, row * ROOM_PX_H)
 end
 
 local function set_palette()
@@ -192,7 +211,7 @@ end
 -- one local {x,y} point to absolute world pixel coordinates, the space
 -- player.pos/room_at/update_camera all operate in.
 local function room_point(room, local_pt)
-  return { x = local_pt.x + room.col * ROOM_PX, y = local_pt.y + room.row * ROOM_PX }
+  return { x = local_pt.x + room.col * ROOM_PX_W, y = local_pt.y + room.row * ROOM_PX_H }
 end
 
 function _init()
@@ -486,23 +505,23 @@ end
 function _draw()
   clear_screen()
   if GAME.mode == "title" then
-    draw_text("PLATFORMER", 46, 50, 14)
-    draw_text("PRESS A", 46, 66, 7)
+    draw_text("PLATFORMER", 76, 50, 14)
+    draw_text("PRESS A", 82, 66, 7)
     return
   end
   if GAME.mode == "won" then
-    draw_text("YOU WIN", 44, 40, 14)
-    draw_text("DEATHS " .. GAME.deaths, 40, 56, 7)
-    draw_text("BERRIES " .. GAME.berries .. "/8", 38, 68, 7)
-    draw_text("PRESS A", 46, 84, 7)
+    draw_text("YOU WIN", 82, 40, 14)
+    draw_text("DEATHS " .. GAME.deaths, 80, 56, 7)
+    draw_text("BERRIES " .. GAME.berries .. "/8", 74, 68, 7)
+    draw_text("PRESS A", 82, 84, 7)
     return
   end
   -- Falls back to the last known room for one frame if the player is
   -- momentarily outside every room's bounds (see the "playing" branch in
   -- _update, which kills and respawns them before the next frame).
   local room = room_at(player.pos.x, player.pos.y) or GAME.last_room
-  local ox, oy = room.col * ROOM_TILES, room.row * ROOM_TILES
-  draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES, ROOM_TILES)
+  local ox, oy = room.col * ROOM_TILES_W, room.row * ROOM_TILES_H
+  draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES_W, ROOM_TILES_H)
   Particles.draw()
   local frame = player.on_ground and math.abs(player.vx) > 0.1 and anim_sprite(player.anim) or SPR_PLAYER_IDLE
   sprite(frame, math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)

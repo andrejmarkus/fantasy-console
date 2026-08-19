@@ -34,27 +34,48 @@ Studio and Port was `aspect-square`.
 Test: a cart drawing `draw_text` at x=0 fits 24 columns; a pixel at x=191 is
 in-bounds and x=192 errors.
 
-### 2.2 Map 64 × 64 → 128 × 128
+### 2.2 Map 64 × 64 → 128 × 128 — **done**
 
-- `crates/caiven-core/src/memory.rs:44-46` — `MAP_W`/`MAP_H` 64 → 128, so
-  `MAP_LEN` and `COLLISION_LEN` go 4096 → 16384. Region bases shift; the memory
-  map table in `docs/api-reference.md:200-215` must be regenerated from the new
-  constants, not hand-edited.
-- `crates/caiven-cart/src/project.rs` — map PNG dimensions.
-- `crates/caiven-cart/src/section.rs:22-25` — doc comment states 64 × 64.
-- `crates/caiven-studio-ui/src/components/MapCanvas.svelte` — hard-coded `64`
-  and `512` throughout (lines 55-56, 79-101, 137-144, 168-173). Derive both from
-  a single constant rather than replacing 64 with 128 in place; the current
-  literals are the reason this is a whole item.
-- Minimap scaling.
+Landed; kept as the record of what the item covered. The thing the original
+list did not anticipate: **32 KiB of map + collision does not fit the 64 KiB
+flat address space.** The old layout filled 64 KiB exactly, and the two regions
+needed +24 KiB against a 22.5 KiB heap. Resolved by an explicit decision from
+the project owner — the addressable space grew to 96 KiB, with Work still
+16 KiB and Heap now ~30.5 KiB, so "64 KiB RAM" now names the general-purpose
+memory (Work + Heap) and the asset windows are mapped alongside it rather than
+carved out of it. The charter's §4 RAM row and its "does not eat guest RAM"
+justification were updated to say so.
+
+- `crates/caiven-core/src/memory.rs` — `MAP_W`/`MAP_H` 64 → 128, both region
+  spans 0x1000 → 0x4000, `RAM_SIZE` 64 → 96 KiB. Every base downstream shifted
+  automatically; only the golden-base test needed new numbers.
+- `crates/caiven-cart/src/project.rs`, `asset_png.rs`, `section.rs` — map PNG
+  dimensions and doc comments follow the constants; no code change was needed
+  beyond the prose.
+- `crates/caiven-studio-ui/src/lib/ipc.ts` — new `MAP_W`/`MAP_H`/`MAP_LEN`/
+  `TILE_SIZE`/`MAP_PX_*`/`SCREEN_TILES_*` exports, guarded by a new drift test
+  in `crates/caiven-core/tests/memory_map_sync.rs`.
+- `MapCanvas.svelte` and `Workspace.svelte` — every hard-coded `64` and `512`
+  now derives from those exports, including the minimap and the scroll-viewport
+  fractions.
+- `MapCanvas.svelte` repaint cost: 4× the tiles made the full redraw ~23 ms in
+  a dev build, and it ran on every pointer move of a paint drag. The canvas
+  image is now kept between renders and a stroke repaints only the cells it
+  touched (measured back down to ~10 ms per move on the tile layer). Editor
+  responsiveness is Clock A, so this was fixed in the same diff rather than
+  filed.
+- `projects/showcase/platformer/main.lua` — rooms re-authored from 16 × 16 to
+  24 × 16 tiles (`ROOM_TILES_W`/`ROOM_TILES_H`), which is what 2.1 deferred.
+
+Note for later items: the map is **not** a whole number of screens wide
+(128 / 24 = 5.33), so the map editor's screen grid has a partial right-hand
+column. That is deliberate — it follows from the charter's own numbers — and
+the editor draws it honestly rather than hiding it.
 
 Guest RAM is untouched: map and collision live in their own regions.
 
-Blocked on this item, left alone by 2.1: the platformer showcase snaps its
-camera to 16 × 16-tile rooms (`projects/showcase/platformer/main.lua`,
-`ROOM_TILES = 16`), so a 24-tile-wide screen now shows a strip of the
-neighbouring room. Re-authoring the rooms to 24 × 16 needs a map wider than
-64 tiles (4 rooms × 24 = 96), which is exactly what this item delivers.
+Test: a tile written at (127, 127) lands, one at (128, 0) is dropped rather
+than wrapping onto row 1, and the collision region starts past the map's end.
 
 ### 2.3 Palette redesign
 
