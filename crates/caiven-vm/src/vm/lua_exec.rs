@@ -16,7 +16,7 @@
 use super::audio::{SFX_VOICE_COUNT, Sound};
 use super::memory::Memory;
 use super::palette::Palette;
-use super::save_data::{SaveData, SaveDataError};
+use super::save_data::SaveData;
 use super::sfx::MusicPlayer;
 use super::{
     AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
@@ -84,8 +84,6 @@ const BUILTIN_NAMES: &[&str] = &[
     "frame_count",
     "time",
     "SPRITE_SIZE",
-    "dset",
-    "dget",
     "save_data",
     "load_data",
 ];
@@ -1440,32 +1438,6 @@ fn register_builtins<'scope, 'env>(
     globals.set(
         "time",
         scope.create_function(move |_, ()| Ok(frame_count as f64 / TARGET_FPS))?,
-    )?;
-
-    globals.set(
-        "dset",
-        scope.create_function(move |_, (slot, value): (i64, f64)| {
-            let slot: u8 = slot.try_into().map_err(|_| {
-                mlua::Error::RuntimeError(SaveDataError::SlotOutOfRange(slot as u8).to_string())
-            })?;
-            save_data
-                .borrow_mut()
-                .set_slot(slot, value)
-                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
-        })?,
-    )?;
-
-    globals.set(
-        "dget",
-        scope.create_function(move |_, slot: i64| {
-            let slot: u8 = slot.try_into().unwrap_or(u8::MAX);
-            if slot as usize >= crate::vm::SAVE_DATA_SLOT_COUNT {
-                return Err(mlua::Error::RuntimeError(
-                    SaveDataError::SlotOutOfRange(slot).to_string(),
-                ));
-            }
-            Ok(save_data.borrow().get_slot(slot))
-        })?,
     )?;
 
     globals.set(

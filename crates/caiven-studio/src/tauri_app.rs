@@ -2863,14 +2863,17 @@ mod tests {
             .console
             .vm
             .save_data_mut()
-            .set_slot(0, 9.0)
-            .expect("slot 0 is in range");
+            .set_blob(serde_json::json!({ "level": 9 }))
+            .expect("blob within size cap");
         let path = save_data_path(&dir);
         std::fs::write(&path, studio.console.vm.save_data().encode()).expect("write save data");
 
         let mut studio2 = StudioCore::new(None).expect("studio core");
         studio2.open(&dir).expect("reopen project");
-        assert_eq!(studio2.console.vm.save_data().get_slot(0), 9.0);
+        assert_eq!(
+            studio2.console.vm.save_data().blob(),
+            &serde_json::json!({ "level": 9 })
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

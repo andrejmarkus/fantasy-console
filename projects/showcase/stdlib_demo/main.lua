@@ -18,7 +18,7 @@ coin_x = math.random(0, 15) * 8
 coin_y = GROUND_Y - 8
 end
 function _init()
-high_score = dget(0)
+high_score = load_data().high_score or 0
 tweens[1] = new_tween(24, 116, 90, ease_linear)
 tweens[2] = new_tween(24, 116, 90, ease_in_quad)
 tweens[3] = new_tween(24, 116, 90, ease_out_quad)
@@ -61,7 +61,7 @@ end
 score = score + 1
 if score > high_score then
 high_score = score
-dset(0, high_score)
+save_data({ high_score = high_score })
 end
 respawn_coin()
 end

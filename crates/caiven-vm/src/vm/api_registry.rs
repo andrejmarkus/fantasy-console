@@ -346,18 +346,6 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Runtime-only multiplier applied to all SFX voices, clamped to [0, 1]. Not persisted to cart data.",
     },
     ApiEntry {
-        name: "dset",
-        params: &[param!("slot": "u8"), param!("value": "number")],
-        returns: "nil",
-        doc: "Write value into save slot 0-63. Errors if slot is out of range. Persists across sessions once the host flushes it to disk.",
-    },
-    ApiEntry {
-        name: "dget",
-        params: &[param!("slot": "u8")],
-        returns: "number",
-        doc: "Read save slot 0-63; 0 if never set. Errors if slot is out of range.",
-    },
-    ApiEntry {
         name: "save_data",
         params: &[param!("data": "table")],
         returns: "nil",

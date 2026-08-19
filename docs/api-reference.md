@@ -84,15 +84,12 @@ ramps). `byte3 = 0` is center pan with an instant on/off envelope.
 
 | Function                | Description                                                                                          |
 | :------------------------| :----------------------------------------------------------------------------------------------------|
-| `dset(slot, value)`     | Write `value` into save slot `0-63`; errors if `slot` is out of range                                |
-| `dget(slot)`            | Read save slot `0-63`; `0` if never set; errors if `slot` is out of range                             |
 | `save_data(table)`      | Replace the persisted save blob (string/number/bool/nested-table only); errors over 4KiB packed or on an unserializable value |
 | `load_data()`           | Return the persisted save blob, or `{}` if `save_data` has never been called                          |
 
-> [!NOTE]
-> `dset`/`dget` are slated for removal in the pending hardware redesign;
-> `save_data`/`load_data` is the one supported way to persist state. See the
-> [design charter](product/design-charter.md).
+`save_data`/`load_data` is the one obvious way to persist state — two save
+APIs would violate that, so the numeric-slot `dset`/`dget` pair has been
+removed.
 
 Save data is per cart (keyed the same way save states already are — see
 System Specifications below) and is written to disk by the host (Machine
@@ -209,8 +206,8 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
 > screen, the 128×128 map, the redesigned palette, the 6 typed audio
-> voices, and named banks have landed; the rest of the hardware redesign is
-> approved and still pending: `dset`/`dget` removed. Target spec:
+> voices, named banks, and the `dset`/`dget` removal have landed; the rest
+> of the hardware redesign is still pending. Target spec:
 > [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 

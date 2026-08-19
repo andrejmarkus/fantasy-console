@@ -228,17 +228,32 @@ Numeric ids removed, not aliased.
 The default bank stays auto-loading, so a cart that never calls `load_*_bank`
 is unaffected.
 
-### 2.6 Drop `dset` / `dget`
+### 2.6 Drop `dset` / `dget` — DONE, committed on `master`.
 
-- `crates/caiven-vm/src/vm/lua_exec.rs:87-88` and `:1446-1470` — remove both
-  builtins.
-- `crates/caiven-vm/src/vm/api_registry.rs` — remove entries.
-- `crates/caiven-vm/src/vm/save_data.rs` — remove the numeric slot store if
-  nothing else uses it; keep the blob path.
-- `docs/api-reference.md:69-70` — remove the rows.
-- Studio Lua autocomplete list.
+`save_data`/`load_data` is the one obvious way; the numeric-slot pair is
+gone. Removed the `dset`/`dget` builtins from `lua_exec.rs`'s
+`BUILTIN_NAMES` and `register_builtins`, and their entries from
+`api_registry.rs`. `save_data.rs`'s `SaveData` dropped the 64-slot
+`[f64; 64]` array and `get_slot`/`set_slot` entirely — nothing outside the
+removed builtins used the numeric store, so there was no reason to keep it
+alongside the blob. `SaveDataError::SlotOutOfRange` went with it, leaving
+only `BlobTooLarge`.
 
-`save_data`/`load_data` is the one obvious way.
+The on-disk `SaveData::encode`/`decode` format lost its slot section
+(`[magic][version][64×f64 slots][blob_len][blob]` →
+`[magic][version][blob_len][blob]`), so `FORMAT_VERSION` bumped 1→2 —
+otherwise an old file's leftover slot bytes would misparse as the blob
+length. `decode` rejects any other version outright rather than
+attempting a partial read; nothing is in production, so there's no
+migration path, matching the same policy already applied to the cart
+format in 2.5. `caiven-machine`'s and `caiven-studio`'s disk-persistence
+tests (which had been round-tripping a value through `set_slot`/`get_slot`
+as their marker) were rewritten to round-trip through the blob instead.
+
+`docs/api-reference.md`'s Persistent Data table dropped the `dset`/`dget`
+rows; the System Specifications pending-note now lists item 2.6 as landed.
+No Studio Lua autocomplete list needed touching — Studio doesn't hardcode
+a builtin-name list; it has no separate copy to drift.
 
 ### 2.7 Per-frame execution budget
 

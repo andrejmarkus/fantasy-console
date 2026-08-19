@@ -19,7 +19,7 @@ pub use lua_exec::{
     prelude_module_catalog,
 };
 pub use palette::*;
-pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SAVE_DATA_SLOT_COUNT, SaveData, SaveDataError};
+pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SaveData, SaveDataError};
 
 use self::memory::Memory;
 use self::sfx::{MusicPlayer, SfxPlayer};

@@ -1104,8 +1104,8 @@ mod tests {
         app.core
             .vm
             .save_data_mut()
-            .set_slot(0, 7.0)
-            .expect("slot 0 is in range");
+            .set_blob(serde_json::json!({ "level": 7 }))
+            .expect("blob within size cap");
         let path = crate::shell::save_data_io::save_data_path(dir.path(), "mygame");
         std::fs::create_dir_all(dir.path()).unwrap();
         std::fs::write(&path, app.core.vm.save_data().encode()).unwrap();
@@ -1116,7 +1116,10 @@ mod tests {
         let data = caiven_vm::vm::SaveData::decode(&bytes).expect("valid save data");
         *app2.core.vm.save_data_mut() = data;
 
-        assert_eq!(app2.core.vm.save_data().get_slot(0), 7.0);
+        assert_eq!(
+            app2.core.vm.save_data().blob(),
+            &serde_json::json!({ "level": 7 })
+        );
     }
 
     #[test]

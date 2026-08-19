@@ -8,31 +8,6 @@ fn fresh_vm() -> (Vm, Input, Font) {
 }
 
 #[test]
-fn dset_dget_round_trip_and_default_zero() {
-    let (mut vm, input, font) = fresh_vm();
-    vm.load_lua_source(
-        "dset(0, 42); assert(dget(0) == 42); assert(dget(1) == 0)",
-        &input,
-        &font,
-    )
-    .expect("dset/dget round trip");
-}
-
-#[test]
-fn dset_out_of_range_slot_is_a_lua_error() {
-    let (mut vm, input, font) = fresh_vm();
-    let result = vm.load_lua_source("dset(64, 1)", &input, &font);
-    assert!(result.is_err(), "slot 64 is out of the 0-63 range");
-}
-
-#[test]
-fn dget_out_of_range_slot_is_a_lua_error() {
-    let (mut vm, input, font) = fresh_vm();
-    let result = vm.load_lua_source("dget(64)", &input, &font);
-    assert!(result.is_err(), "slot 64 is out of the 0-63 range");
-}
-
-#[test]
 fn load_data_with_no_prior_save_returns_empty_table() {
     let (mut vm, input, font) = fresh_vm();
     vm.load_lua_source(
@@ -63,10 +38,10 @@ fn save_data_over_size_cap_is_a_lua_error() {
 }
 
 #[test]
-fn dset_marks_vm_save_data_dirty() {
+fn save_data_marks_vm_save_data_dirty() {
     let (mut vm, input, font) = fresh_vm();
     assert!(!vm.save_data().is_dirty());
-    vm.load_lua_source("dset(0, 1)", &input, &font)
-        .expect("dset succeeds");
+    vm.load_lua_source("save_data({ level = 1 })", &input, &font)
+        .expect("save_data succeeds");
     assert!(vm.save_data().is_dirty());
 }
