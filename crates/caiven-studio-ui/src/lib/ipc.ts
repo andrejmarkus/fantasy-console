@@ -32,7 +32,7 @@ end`;
 
 /**
  * Console default palette. Mirrors `caiven_vm::vm::palette::DEFAULT_COLORS`, and a
- * drift test in `crates/caiven-core/tests/memory_map_sync.rs` keeps the two in step.
+ * drift test in `crates/caiven-vm/tests/palette_sync.rs` keeps the two in step.
  * Slots 1-12 are four hue ramps in dark → mid → light order; 0 and 15 are black and
  * white, 13 and 14 the accents.
  */
@@ -70,7 +70,7 @@ export const defaultSprite = [
 
 export const MEMORY = {
   sprites: 0x4000, map: 0x8000,
-  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC603,
+  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC703,
 } as const;
 
 /** Total addressable memory. Mirrors `caiven_core::memory::RAM_SIZE`. */
@@ -88,6 +88,19 @@ export const MAP_H = 128;
 /** Map/collision byte length — one byte per cell. */
 export const MAP_LEN = MAP_W * MAP_H;
 export const COLLISION_LEN = MAP_LEN;
+/** SFX bank byte length. Mirrors `caiven_core::memory::SFX_BANK_LEN`. */
+export const SFX_BANK_LEN = 16 * 64;
+/** Music tracker shape. Mirrors `caiven_core::memory::MUSIC_PATTERN_COUNT`,
+ * `MUSIC_PATTERN_ROWS` and `MUSIC_CHANNEL_COUNT`. The four channels are typed
+ * by column: pulse 1, pulse 2, triangle, noise. */
+export const MUSIC_PATTERN_COUNT = 8;
+export const MUSIC_PATTERN_ROWS = 16;
+export const MUSIC_CHANNEL_COUNT = 4;
+/** Music bank byte length — one byte per channel per row. */
+export const MUSIC_BANK_LEN = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+/** Bytes one pattern occupies — the tracker's stride between patterns. */
+export const MUSIC_PATTERN_LEN = MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+
 /** Tile edge in pixels; the map editor renders at 1:1 tile pixels. */
 export const TILE_SIZE = 8;
 export const MAP_PX_W = MAP_W * TILE_SIZE;
@@ -136,15 +149,15 @@ const fallback: StudioBootstrap = {
   activeMapBank: 0,
   collision: Array(COLLISION_LEN).fill(0),
   collisionTypes: structuredClone(defaultCollisionTypes),
-  sfx: Array(1024).fill(0),
-  music: Array(256).fill(0),
+  sfx: Array(SFX_BANK_LEN).fill(0),
+  music: Array(MUSIC_BANK_LEN).fill(0),
   paletteBanks: [0],
   activePaletteBank: 0,
   sfxBanks: [0],
   activeSfxBank: 0,
   musicBanks: [0],
   activeMusicBank: 0,
-  ram: Array(65536).fill(0),
+  ram: Array(RAM_SIZE).fill(0),
   globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
   watches: [],
   callStack: [],

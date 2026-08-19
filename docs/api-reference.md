@@ -190,9 +190,10 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
-> screen, the 128×128 map and the redesigned palette have landed; the rest of
-> the hardware redesign is approved and still pending: 6 typed audio voices,
-> named banks, and `dset`/`dget` removed. Target spec:
+> screen, the 128×128 map, the redesigned palette and the 6 typed audio
+> voices have landed; the rest of
+> the hardware redesign is approved and still pending: named banks and
+> `dset`/`dget` removed. Target spec:
 > [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 
@@ -205,6 +206,7 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | **Palette**       | 16 colors: 4 hue ramps × 3 shades, plus black, white and 2 accents (see below)     |
 | **Sprites**       | 256 × 8×8 pixels per bank; bank 0 always available                                |
 | **Map**           | 128×128 tiles per bank; bank 0 always available                                   |
+| **Audio**         | 6 voices: 4 typed music channels (pulse 1, pulse 2, triangle, noise) + 2 voices reserved for sound effects (see below) |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
 as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
@@ -231,6 +233,19 @@ after it. Slot 0 is black, slot 15 is white, and 13–14 are the two accents.
 `set_palette_color(index, r, g, b)` replaces any slot at runtime, so a cart that
 wants its own colors is never stuck with these.
 
+### Audio
+
+Music is authored as 8 patterns of 16 rows. Each row has one cell per music
+channel holding an SFX reference, and each channel's timbre is fixed by its
+column — pulse 1, pulse 2, triangle, noise — so "which channel is that?" is
+answered by ear. A channel plays the referenced SFX's notes and volumes; the
+SFX's own wave byte is ignored there, because the column already decided it.
+
+The two remaining voices are reserved for `play_sfx`. Nothing a cart plays
+through them can silence a music channel: a jump sound landing on a busy
+frame steals the older sound effect, never the melody. More than two
+concurrent sound effects steal the least recently started one.
+
 ### Memory Map
 
 | Range           | Region                                                         |
@@ -240,7 +255,7 @@ wants its own colors is never stuck with these.
 | `0x8000–0xBFFF` | Tilemap 128×128 (1 byte/cell)                                  |
 | `0xC000–0xC0FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
 | `0xC100–0xC4FF` | SFX bank (16 × 64 bytes)                                       |
-| `0xC500–0xC5FF` | Music bank (8 × 32 bytes)                                      |
-| `0xC600–0xC602` | RTC (hour, minute, second)                                     |
-| `0xC603–0x10602` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0x10603–0x17FFF` | Reserved                                                     |
+| `0xC500–0xC6FF` | Music bank (8 patterns × 16 rows × 4 channels, 1 byte/cell)     |
+| `0xC700–0xC702` | RTC (hour, minute, second)                                     |
+| `0xC703–0x10702` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0x10703–0x17FFF` | Reserved                                                     |

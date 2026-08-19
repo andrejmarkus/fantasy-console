@@ -1,4 +1,5 @@
 use anyhow::Result;
+use caiven_core::memory::MUSIC_CHANNEL_COUNT;
 use std::sync::{Arc, Mutex};
 
 #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
@@ -12,20 +13,19 @@ const CHANNEL_HEADROOM: f32 = 0.5;
 /// much louder than typical game audio at the same numeric volume.
 const MASTER_GAIN: f32 = 0.35;
 
-pub const VOICE_COUNT: usize = 8;
-/// Voice 0/1 are hard-assigned to music channels ch0/ch1, matching the
-/// pre-existing `tick_music_player` assignment.
-pub const MUSIC_VOICE_CH0: usize = 0;
-pub const MUSIC_VOICE_CH1: usize = 1;
-/// Reserved for `Vm::start_sfx`/`stop_sfx`/`sfx_player()` — the
-/// pre-existing single-slot preview player Studio's SFX editor drives.
-/// Kept separate from the new Lua-facing pool below so Studio's preview
-/// code needs no changes.
-pub const LEGACY_SFX_VOICE: usize = 2;
-/// Round-robin/steal pool backing the new polyphonic `play_sfx`/`stop_sfx`
-/// Lua API.
-pub const SFX_POOL_START: usize = 3;
-pub const SFX_POOL_LEN: usize = VOICE_COUNT - SFX_POOL_START;
+/// The console's six voices: four typed music channels followed by two
+/// voices reserved for sound effects. Reserving the sfx voices is the point
+/// of the split — a jump sound can never cut the melody, which is the most
+/// confusing audio bug a beginner hits.
+pub const MUSIC_VOICE_COUNT: usize = MUSIC_CHANNEL_COUNT;
+pub const SFX_VOICE_COUNT: usize = 2;
+pub const VOICE_COUNT: usize = MUSIC_VOICE_COUNT + SFX_VOICE_COUNT;
+/// Voices `0..MUSIC_VOICE_COUNT` are the music channels, in tracker column
+/// order.
+pub const MUSIC_VOICE_START: usize = 0;
+/// Voices `SFX_VOICE_START..VOICE_COUNT` back `play_sfx`/`stop_sfx` and
+/// Studio's SFX-editor preview.
+pub const SFX_VOICE_START: usize = MUSIC_VOICE_COUNT;
 
 /// Fixed pan positions selected by the low 4 bits of an SFX step's byte3.
 /// Index 0 is deliberately center — a step that never set byte3 (every
@@ -41,9 +41,22 @@ pub const ENVELOPE_MS: [f32; 4] = [0.0, 15.0, 50.0, 150.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceKind {
+    /// 50% pulse. Named Square because that is what the waveform is; the
+    /// tracker calls the two music voices using it "Pulse 1"/"Pulse 2".
     Square,
+    Triangle,
     Noise,
 }
+
+/// Timbre of each music channel, fixed by the hardware. A music channel's
+/// sound is decided by which column it is in, so "which channel?" is
+/// answered by ear rather than by reading a wave byte.
+pub const MUSIC_VOICE_KINDS: [VoiceKind; MUSIC_VOICE_COUNT] = [
+    VoiceKind::Square,
+    VoiceKind::Square,
+    VoiceKind::Triangle,
+    VoiceKind::Noise,
+];
 
 /// One synth voice's target parameters, written by the frame thread and
 /// read every audio sample by [`Synth::next_sample`]. `epoch` is bumped on
@@ -171,6 +184,13 @@ impl Synth {
                     self.phase[i] = (self.phase[i] + voice.frequency / sample_rate) % 1.0;
                     v
                 }
+                VoiceKind::Triangle => {
+                    self.phase[i] = (self.phase[i] + voice.frequency / sample_rate) % 1.0;
+                    // Rises -1 → 1 over the first half of the period and back
+                    // down over the second, so the odd-harmonic-only timbre
+                    // sits under a pulse lead without masking it.
+                    4.0 * (self.phase[i] - 0.5).abs() - 1.0
+                }
                 VoiceKind::Noise => {
                     self.phase[i] += voice.frequency / sample_rate;
                     if self.phase[i] >= 1.0 {
@@ -186,9 +206,7 @@ impl Synth {
                 }
             };
 
-            // Voices 0/1 are the music channels; everything else (legacy
-            // preview + the SFX pool) is grouped under sfx_volume.
-            let group_volume = if i < 2 {
+            let group_volume = if i < SFX_VOICE_START {
                 sound.music_volume
             } else {
                 sound.sfx_volume
@@ -418,6 +436,58 @@ mod voice_tests {
     use super::*;
 
     #[test]
+    fn console_has_six_voices_four_of_them_typed_music_channels() {
+        assert_eq!(VOICE_COUNT, 6);
+        assert_eq!(MUSIC_VOICE_KINDS.len(), MUSIC_VOICE_COUNT);
+        assert_eq!(SFX_VOICE_START + SFX_VOICE_COUNT, VOICE_COUNT);
+        assert_eq!(
+            MUSIC_VOICE_KINDS,
+            [
+                VoiceKind::Square,
+                VoiceKind::Square,
+                VoiceKind::Triangle,
+                VoiceKind::Noise
+            ]
+        );
+    }
+
+    /// A triangle must ramp rather than jump between its extremes — that
+    /// gradual slope is the whole reason it sits under a pulse lead instead
+    /// of fighting it.
+    #[test]
+    fn triangle_voice_ramps_instead_of_switching_between_extremes() {
+        let mut sound = Sound::default();
+        sound.voices[SFX_VOICE_START] = Voice {
+            kind: VoiceKind::Triangle,
+            gate: true,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: 0.0,
+            attack_ms: 0.0,
+            release_ms: 0.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        let sample_rate = 44_100.0;
+        let mut samples = Vec::new();
+        // One full period at 440 Hz.
+        for _ in 0..(sample_rate / 440.0) as usize {
+            let (l, _r) = synth.next_sample(&sound, sample_rate);
+            samples.push(l);
+        }
+
+        let biggest_jump = samples
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .fold(0.0f32, f32::max);
+        let span = samples.iter().fold(0.0f32, |acc, s| acc.max(s.abs()));
+        assert!(
+            biggest_jump < span,
+            "triangle stepped {biggest_jump} between samples across a {span} span — that is a square, not a ramp"
+        );
+    }
+
+    #[test]
     fn pan_table_index_zero_is_center() {
         assert_eq!(PAN_TABLE[0], 0.0);
     }
@@ -437,7 +507,7 @@ mod voice_tests {
     #[test]
     fn instant_envelope_reaches_full_volume_within_one_sample() {
         let mut sound = Sound::default();
-        sound.voices[SFX_POOL_START] = Voice {
+        sound.voices[SFX_VOICE_START] = Voice {
             kind: VoiceKind::Square,
             gate: true,
             frequency: 440.0,
@@ -460,7 +530,7 @@ mod voice_tests {
         // byte3 == 0 decodes to pan 0.0; equal-gain center must reproduce
         // the old mono-duplicated-to-both-channels behavior exactly.
         let mut sound = Sound::default();
-        sound.voices[SFX_POOL_START] = Voice {
+        sound.voices[SFX_VOICE_START] = Voice {
             kind: VoiceKind::Square,
             gate: true,
             frequency: 440.0,
@@ -478,7 +548,7 @@ mod voice_tests {
     #[test]
     fn hard_left_pan_silences_right_channel() {
         let mut sound = Sound::default();
-        sound.voices[SFX_POOL_START] = Voice {
+        sound.voices[SFX_VOICE_START] = Voice {
             kind: VoiceKind::Square,
             gate: true,
             frequency: 440.0,
@@ -496,7 +566,7 @@ mod voice_tests {
     #[test]
     fn released_voice_fades_to_silence_over_release_samples() {
         let mut sound = Sound::default();
-        sound.voices[SFX_POOL_START] = Voice {
+        sound.voices[SFX_VOICE_START] = Voice {
             kind: VoiceKind::Square,
             gate: false,
             frequency: 440.0,
@@ -508,8 +578,8 @@ mod voice_tests {
         };
         let mut synth = Synth::new();
         // Force env_level to 1.0 as if the note had just been playing.
-        synth.env_level[SFX_POOL_START] = 1.0;
-        synth.env_epoch[SFX_POOL_START] = 1;
+        synth.env_level[SFX_VOICE_START] = 1.0;
+        synth.env_epoch[SFX_VOICE_START] = 1;
         let sample_rate = 44_100.0;
         // +1 sample of headroom: (0.150 * sample_rate) can truncate below the
         // exact sample count needed due to floating-point rounding.
@@ -517,13 +587,13 @@ mod voice_tests {
         for _ in 0..release_samples {
             synth.next_sample(&sound, sample_rate);
         }
-        assert!(synth.env_level[SFX_POOL_START] <= 0.0);
+        assert!(synth.env_level[SFX_VOICE_START] <= 0.0);
     }
 
     #[test]
     fn retrigger_via_epoch_resets_envelope_even_while_gated() {
         let mut sound = Sound::default();
-        sound.voices[SFX_POOL_START] = Voice {
+        sound.voices[SFX_VOICE_START] = Voice {
             kind: VoiceKind::Square,
             gate: true,
             frequency: 440.0,
@@ -534,14 +604,14 @@ mod voice_tests {
             epoch: 1,
         };
         let mut synth = Synth::new();
-        synth.env_level[SFX_POOL_START] = 1.0;
-        synth.env_epoch[SFX_POOL_START] = 1;
+        synth.env_level[SFX_VOICE_START] = 1.0;
+        synth.env_epoch[SFX_VOICE_START] = 1;
         // Same epoch: envelope must NOT reset.
         synth.next_sample(&sound, 44_100.0);
-        assert!(synth.env_level[SFX_POOL_START] > 0.9);
+        assert!(synth.env_level[SFX_VOICE_START] > 0.9);
         // New epoch (retrigger/steal): envelope must reset to a fresh attack ramp.
-        sound.voices[SFX_POOL_START].epoch = 2;
+        sound.voices[SFX_VOICE_START].epoch = 2;
         synth.next_sample(&sound, 44_100.0);
-        assert!(synth.env_level[SFX_POOL_START] < 0.9);
+        assert!(synth.env_level[SFX_VOICE_START] < 0.9);
     }
 }

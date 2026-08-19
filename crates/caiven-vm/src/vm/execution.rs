@@ -6,7 +6,8 @@ use super::sfx::{MusicPlayer, SfxPlayer, decode_byte3, note_to_freq};
 use crate::input::Input;
 use crate::rendering::font::Font;
 use crate::vm::audio;
-use crate::vm::audio::{Voice, VoiceKind};
+use crate::vm::audio::{MUSIC_VOICE_KINDS, Voice, VoiceKind};
+use caiven_core::memory::MUSIC_PATTERN_ROWS;
 
 fn tick_sfx_channel(
     player: &mut SfxPlayer,
@@ -60,32 +61,13 @@ impl Vm {
     fn trigger_music_row(&mut self) {
         let base =
             MusicPlayer::pattern_row_base(self.music_player.pattern_id, self.music_player.row);
-        let ch0_ref = self.memory.read(base).unwrap_or(0);
-        let ch1_ref = self.memory.read(base + 1).unwrap_or(0);
-        if ch0_ref > 0 {
-            self.music_player.ch0.start(ch0_ref - 1);
-        } else {
-            self.music_player.ch0.active = false;
-        }
-        if ch1_ref > 0 {
-            self.music_player.ch1.start(ch1_ref - 1);
-        } else {
-            self.music_player.ch1.active = false;
-        }
-    }
-
-    fn tick_sfx_player(&mut self) {
-        if !self.sfx_player.active {
-            return;
-        }
-        if let Ok(mut s) = self.sound.try_lock() {
-            tick_sfx_channel(
-                &mut self.sfx_player,
-                &self.memory,
-                &mut s.voices[audio::LEGACY_SFX_VOICE],
-                None,
-                1.0,
-            );
+        for (channel, player) in self.music_player.channels.iter_mut().enumerate() {
+            // A cell holds `sfx id + 1`, so 0 means "no note on this channel
+            // this row" rather than "SFX 0".
+            match self.memory.read(base + channel).unwrap_or(0) {
+                0 => player.active = false,
+                sfx_ref => player.start(sfx_ref - 1),
+            }
         }
     }
 
@@ -99,35 +81,26 @@ impl Vm {
             self.trigger_music_row();
         }
 
-        // Voice 0 is hard-assigned to ch0 (forced Square) and voice 1 to
-        // ch1 (forced Noise) — the per-step `wave` byte the Music tracker
-        // UI lets you set is intentionally ignored here to keep both
-        // channels audible at once instead of one overriding the other;
-        // it only does something for single-voice SFX playback.
+        // Each music channel's timbre is fixed by its column, so the per-step
+        // `wave` byte the SFX editor writes is ignored here — it only does
+        // something when the same SFX is played through a voice of its own.
         if let Ok(mut s) = self.sound.try_lock() {
-            let (ch0_voice, rest) = s.voices.split_first_mut().expect("voices is non-empty");
-            let ch1_voice = &mut rest[0];
-            tick_sfx_channel(
-                &mut self.music_player.ch0,
-                &self.memory,
-                ch0_voice,
-                Some(VoiceKind::Square),
-                1.0,
-            );
-            tick_sfx_channel(
-                &mut self.music_player.ch1,
-                &self.memory,
-                ch1_voice,
-                Some(VoiceKind::Noise),
-                1.0,
-            );
+            for (channel, player) in self.music_player.channels.iter_mut().enumerate() {
+                let (Some(voice), Some(kind)) = (
+                    s.voices.get_mut(audio::MUSIC_VOICE_START + channel),
+                    MUSIC_VOICE_KINDS.get(channel).copied(),
+                ) else {
+                    continue;
+                };
+                tick_sfx_channel(player, &self.memory, voice, Some(kind), 1.0);
+            }
         }
 
         self.music_player.tick_count += 1;
         if self.music_player.tick_count >= self.music_player.ticks_per_row {
             self.music_player.tick_count = 0;
             self.music_player.row += 1;
-            if self.music_player.row >= 16 {
+            if self.music_player.row as usize >= MUSIC_PATTERN_ROWS {
                 if self.music_player.loop_on {
                     self.music_player.row = 0;
                 } else {
@@ -143,7 +116,7 @@ impl Vm {
                 tick_sfx_channel(
                     &mut pooled.player,
                     &self.memory,
-                    &mut s.voices[audio::SFX_POOL_START + i],
+                    &mut s.voices[audio::SFX_VOICE_START + i],
                     None,
                     pooled.volume_scale,
                 );
@@ -155,14 +128,12 @@ impl Vm {
     /// lets editors preview audio while the game is stopped or paused.
     pub fn tick_audio_players(&mut self) {
         self.tick_music_player();
-        self.tick_sfx_player();
         self.tick_sfx_pool();
     }
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
         self.tick_music_player();
-        self.tick_sfx_player();
         self.tick_sfx_pool();
         self.peripherals
             .tick_all(&mut self.memory, self.frame_count);

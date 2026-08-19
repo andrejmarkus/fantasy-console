@@ -23,7 +23,13 @@
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
-  import { MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
+  import {
+    MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_COUNT,
+    MUSIC_PATTERN_LEN, MUSIC_PATTERN_ROWS, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH,
+  } from '../lib/ipc';
+
+  /** Music channel timbres, fixed by column. Mirrors `audio::MUSIC_VOICE_KINDS`. */
+  const MUSIC_CHANNEL_LABELS = ['Pulse 1', 'Pulse 2', 'Triangle', 'Noise'];
 
   type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
   type MapRegion = { x0: number; y0: number; w: number; h: number };
@@ -746,9 +752,12 @@
   }
 
   function selectEmptyPattern() {
-    const empty = Array.from({ length: 8 }, (_, pattern) => music.slice(pattern * 32, pattern * 32 + 32).some(Boolean)).findIndex((filled) => !filled);
-    soundSelection.pattern = empty >= 0 ? empty : (selectedPattern + 1) % 8;
+    const empty = Array.from({ length: MUSIC_PATTERN_COUNT }, (_, pattern) => patternBytes(pattern).some(Boolean)).findIndex((filled) => !filled);
+    soundSelection.pattern = empty >= 0 ? empty : (selectedPattern + 1) % MUSIC_PATTERN_COUNT;
   }
+
+  /** One pattern's cells: MUSIC_PATTERN_ROWS rows of MUSIC_CHANNEL_COUNT bytes. */
+  const patternBytes = (pattern: number) => music.slice(pattern * MUSIC_PATTERN_LEN, (pattern + 1) * MUSIC_PATTERN_LEN);
 
   const sfxByte = (step: number, field: number) => sfx[selectedSfx * 64 + step * 4 + field] ?? 0;
   const sfxStepActive = (step: number) => sfxPlaying && audio.sfxStep === step;
@@ -871,9 +880,9 @@
 
   function changeMusic(row: number, channel: number) {
     const pattern = selectedPattern;
-    const before = music.slice(pattern * 32, pattern * 32 + 32);
+    const before = patternBytes(pattern);
     const after = [...before];
-    const at = row * 2 + channel;
+    const at = row * MUSIC_CHANNEL_COUNT + channel;
     after[at] = ((after[at] ?? 0) + 1) % 17;
     musicHistory = pushEntry(musicHistory, {
       label: `Pattern ${pattern.toString().padStart(2, '0')}`,
@@ -1615,9 +1624,9 @@
     <section class="music-screen">
       <aside class="pattern-list">
         <div class="panel-cap"><span class="eyebrow">Patterns</span><button title="Select first empty pattern" onclick={selectEmptyPattern}><Plus size={14} /></button></div>
-        {#each Array(8) as _, index}
+        {#each Array(MUSIC_PATTERN_COUNT) as _, index}
           <button class:active={selectedPattern === index} onclick={() => soundSelection.pattern = index}>
-            <code>{index.toString().padStart(2,'0')}</code><span>{music.slice(index * 32, index * 32 + 32).some(Boolean) ? `Pattern ${index.toString().padStart(2,'0')}` : 'Empty pattern'}</span>
+            <code>{index.toString().padStart(2,'0')}</code><span>{patternBytes(index).some(Boolean) ? `Pattern ${index.toString().padStart(2,'0')}` : 'Empty pattern'}</span>
           </button>
         {/each}
         <div class="song-order"><span class="eyebrow">Playback</span><button class:active={audio.musicActive} onclick={() => onAudio('music', audio.musicPattern, audio.musicActive ? 'stop' : 'play')}><code>{audio.musicPattern.toString().padStart(2,'0')}</code>{audio.musicActive ? `Row ${audio.musicRow.toString(16).toUpperCase()}` : 'Stopped'}<small>{audio.musicLoop ? 'loop' : 'once'}</small></button></div>
@@ -1632,9 +1641,9 @@
           </div>
         </header>
         <div class="music-grid">
-          <div class="music-head"><span>Row</span><span>Channel 1</span><span>Channel 2</span></div>
-          {#each Array(16) as _, row}
-            <div class:playhead={audio.musicActive && audio.musicPattern === selectedPattern && audio.musicRow === row}><code>{row.toString(16).toUpperCase().padStart(2,'0')}</code>{#each Array(2) as _, channel}{@const cell = music[selectedPattern * 32 + row * 2 + channel] ?? 0}<button onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '—'}</button>{/each}</div>
+          <div class="music-head"><span>Row</span>{#each MUSIC_CHANNEL_LABELS as label}<span>{label}</span>{/each}</div>
+          {#each Array(MUSIC_PATTERN_ROWS) as _, row}
+            <div class:playhead={audio.musicActive && audio.musicPattern === selectedPattern && audio.musicRow === row}><code>{row.toString(16).toUpperCase().padStart(2,'0')}</code>{#each MUSIC_CHANNEL_LABELS as _, channel}{@const cell = music[selectedPattern * MUSIC_PATTERN_LEN + row * MUSIC_CHANNEL_COUNT + channel] ?? 0}<button onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '—'}</button>{/each}</div>
           {/each}
         </div>
       </div>

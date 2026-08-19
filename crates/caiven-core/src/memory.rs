@@ -21,10 +21,10 @@
 //! 0x8000 ─ 0xBFFF   tile map (128 × 128 tiles, 1 byte per tile)
 //! 0xC000 ─ 0xC0FF   palette (16 slots × 3 bytes RGB)
 //! 0xC100 ─ 0xC4FF   SFX bank (16 sfx × 64 bytes)
-//! 0xC500 ─ 0xC5FF   music bank (8 patterns × 32 bytes)
-//! 0xC600 ─ 0xC602   RTC peripheral (hour, minute, second)
-//! 0xC603 ─ 0x10602  per-cell collision (128 × 128 tiles, 1 byte per cell)
-//! 0x10603 ─ 0x17FFF general purpose / heap
+//! 0xC500 ─ 0xC6FF   music bank (8 patterns × 64 bytes)
+//! 0xC700 ─ 0xC702   RTC peripheral (hour, minute, second)
+//! 0xC703 ─ 0x10702  per-cell collision (128 × 128 tiles, 1 byte per cell)
+//! 0x10703 ─ 0x17FFF general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -59,8 +59,15 @@ pub const SPRITE_SHEET_LEN: usize = SPRITE_COUNT * SPRITE_BYTES;
 pub const MAP_LEN: usize = MAP_W * MAP_H;
 /// SFX bank length in bytes (16 sfx × 64 bytes).
 pub const SFX_BANK_LEN: usize = 16 * 64;
-/// Music bank length in bytes (8 patterns × 32 bytes).
-pub const MUSIC_BANK_LEN: usize = 8 * 32;
+/// Music patterns per bank.
+pub const MUSIC_PATTERN_COUNT: usize = 8;
+/// Rows per music pattern.
+pub const MUSIC_PATTERN_ROWS: usize = 16;
+/// Typed music channels: 2 pulse, 1 triangle, 1 noise. One byte per channel
+/// per row holds that row's SFX reference, so this is also the row stride.
+pub const MUSIC_CHANNEL_COUNT: usize = 4;
+/// Music bank length in bytes (8 patterns × 16 rows × 4 channels).
+pub const MUSIC_BANK_LEN: usize = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
 /// RTC register block length in bytes (hour, minute, second).
 pub const RTC_LEN: usize = 3;
 /// Collision layer length in bytes (128 × 128 cells, 1 byte per cell).
@@ -114,7 +121,7 @@ impl MemRegion {
             MemRegion::Map => 0x4000,
             MemRegion::Palette => 0x100,
             MemRegion::Sfx => 0x400,
-            MemRegion::Music => 0x100,
+            MemRegion::Music => 0x200,
             MemRegion::Rtc => RTC_LEN,
             MemRegion::Collision => 0x4000,
             // Everything left over at the top of RAM.
@@ -198,9 +205,9 @@ mod tests {
             (MemRegion::Palette, 0xC000),
             (MemRegion::Sfx, 0xC100),
             (MemRegion::Music, 0xC500),
-            (MemRegion::Rtc, 0xC600),
-            (MemRegion::Collision, 0xC603),
-            (MemRegion::Heap, 0x10603),
+            (MemRegion::Rtc, 0xC700),
+            (MemRegion::Collision, 0xC703),
+            (MemRegion::Heap, 0x10703),
         ];
 
         for (region, want) in expected {

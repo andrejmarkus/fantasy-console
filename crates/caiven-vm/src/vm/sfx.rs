@@ -1,7 +1,7 @@
-use super::audio::{ENVELOPE_MS, PAN_TABLE};
+use super::audio::{ENVELOPE_MS, MUSIC_VOICE_COUNT, PAN_TABLE};
+use caiven_core::memory::{MUSIC_PATTERN_COUNT, MUSIC_PATTERN_ROWS};
 pub use caiven_core::memory::{MUSIC_RAM_BASE as MUSIC_BANK_BASE, SFX_RAM_BASE as SFX_BANK_BASE};
 const SFX_STEPS: u8 = 16;
-const MUSIC_ROWS: u8 = 16;
 
 /// Unpacks an SFX step's byte3: bits 0-3 select a pan position, bits 4-5
 /// select an attack ramp length, bits 6-7 select a release ramp length.
@@ -81,8 +81,9 @@ pub struct MusicPlayer {
     pub tick_count: u8,
     pub ticks_per_row: u8,
     pub loop_on: bool,
-    pub ch0: SfxPlayer,
-    pub ch1: SfxPlayer,
+    /// One player per typed music channel, in tracker column order. Each
+    /// drives the voice at the same index — see `audio::MUSIC_VOICE_KINDS`.
+    pub channels: [SfxPlayer; MUSIC_VOICE_COUNT],
 }
 
 impl Default for MusicPlayer {
@@ -100,13 +101,12 @@ impl MusicPlayer {
             tick_count: 0,
             ticks_per_row: 64,
             loop_on: true,
-            ch0: SfxPlayer::new(),
-            ch1: SfxPlayer::new(),
+            channels: std::array::from_fn(|_| SfxPlayer::new()),
         }
     }
 
     pub fn start(&mut self, pattern_id: u8) {
-        self.pattern_id = pattern_id.min(7);
+        self.pattern_id = pattern_id.min(MUSIC_PATTERN_COUNT as u8 - 1);
         self.row = 0;
         self.tick_count = 0;
         self.active = true;
@@ -114,12 +114,17 @@ impl MusicPlayer {
 
     pub fn stop(&mut self) {
         self.active = false;
-        self.ch0.active = false;
-        self.ch1.active = false;
+        for channel in &mut self.channels {
+            channel.active = false;
+        }
     }
 
+    /// Byte address of `row`'s first channel cell. Rows are
+    /// `MUSIC_VOICE_COUNT` bytes wide, one SFX reference per typed channel.
     pub fn pattern_row_base(pattern_id: u8, row: u8) -> usize {
-        MUSIC_BANK_BASE + (pattern_id as usize) * (MUSIC_ROWS as usize * 2) + (row as usize) * 2
+        MUSIC_BANK_BASE
+            + (pattern_id as usize) * (MUSIC_PATTERN_ROWS * MUSIC_VOICE_COUNT)
+            + (row as usize) * MUSIC_VOICE_COUNT
     }
 }
 

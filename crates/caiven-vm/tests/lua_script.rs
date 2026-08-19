@@ -4,7 +4,9 @@ use caiven_core::memory::{
 };
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
-use caiven_vm::vm::audio::{MUSIC_VOICE_CH0, MUSIC_VOICE_CH1, SFX_POOL_LEN, SFX_POOL_START};
+use caiven_vm::vm::audio::{
+    MUSIC_VOICE_COUNT, MUSIC_VOICE_START, SFX_VOICE_COUNT, SFX_VOICE_START,
+};
 use caiven_vm::vm::palette::DEFAULT_COLORS;
 use caiven_vm::{
     LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
@@ -651,7 +653,7 @@ fn lua_run_frame_bp_ticks_audio_players() {
 
     let sound = vm.get_sound_shared();
     let s = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let voice = s.voices[SFX_POOL_START..]
+    let voice = s.voices[SFX_VOICE_START..]
         .iter()
         .find(|v| v.gate)
         .unwrap_or_else(|| panic!("expected a gated pool voice, found none"));
@@ -673,9 +675,10 @@ fn stop_audio_silences_players_and_shared_channels() {
     assert!(!vm.music_player().active);
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|error| error.into_inner());
-    assert!(!sound.voices[caiven_vm::vm::audio::LEGACY_SFX_VOICE].gate);
-    assert!(!sound.voices[MUSIC_VOICE_CH0].gate);
-    assert!(!sound.voices[MUSIC_VOICE_CH1].gate);
+    assert!(
+        sound.voices.iter().all(|voice| !voice.gate),
+        "stop_audio must leave every voice ungated, music channels included"
+    );
 }
 
 #[test]
@@ -732,7 +735,7 @@ fn play_sfx_is_polyphonic_two_concurrent_calls_occupy_distinct_voices() {
 
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+    let gated_pool_voices = sound.voices[SFX_VOICE_START..]
         .iter()
         .filter(|v| v.gate)
         .count();
@@ -743,14 +746,14 @@ fn play_sfx_is_polyphonic_two_concurrent_calls_occupy_distinct_voices() {
 }
 
 #[test]
-fn sixth_concurrent_play_sfx_steals_the_oldest_voice() {
+fn overflowing_play_sfx_calls_steal_the_oldest_voice() {
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();
     vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
-    // SFX_POOL_LEN (5) voices, so a 6th concurrent call must steal instead
-    // of erroring or being dropped.
-    let calls: String = (0..SFX_POOL_LEN + 1)
+    // One more concurrent call than there are sfx voices must steal the
+    // oldest instead of erroring or being dropped.
+    let calls: String = (0..SFX_VOICE_COUNT + 1)
         .map(|_| "play_sfx(0)\n".to_string())
         .collect();
     vm.load_lua_source(&format!("function _init()\n{calls}end"), &input, &font)
@@ -760,12 +763,12 @@ fn sixth_concurrent_play_sfx_steals_the_oldest_voice() {
 
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+    let gated_pool_voices = sound.voices[SFX_VOICE_START..]
         .iter()
         .filter(|v| v.gate)
         .count();
     assert_eq!(
-        gated_pool_voices, SFX_POOL_LEN,
+        gated_pool_voices, SFX_VOICE_COUNT,
         "all pool voices should be busy after more concurrent calls than the pool has slots"
     );
 }
@@ -777,12 +780,17 @@ fn play_sfx_does_not_disturb_concurrent_music_playback() {
     let font = Font::empty();
     // SFX slot 0, step 0: note=49, vol=12, wave=0 (square).
     vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
-    // Music pattern 0, row 0: ch0 references SFX slot 0 (byte value = id+1).
-    vm.load_section_to_ram(MUSIC_RAM_BASE, &[1, 0]);
+    // Music pattern 0, row 0: every typed channel references SFX slot 0
+    // (byte value = id + 1), so all four music voices are sounding.
+    vm.load_section_to_ram(MUSIC_RAM_BASE, &[1; MUSIC_VOICE_COUNT]);
     vm.load_lua_source(
         r#"
         function _init()
           play_music(0)
+          -- More sfx calls than there are sfx voices: the steal must stay
+          -- inside the sfx pair instead of reaching a music channel.
+          play_sfx(0)
+          play_sfx(0)
           play_sfx(0)
         end
         "#,
@@ -795,9 +803,12 @@ fn play_sfx_does_not_disturb_concurrent_music_playback() {
 
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    let silenced: Vec<usize> = (MUSIC_VOICE_START..MUSIC_VOICE_START + MUSIC_VOICE_COUNT)
+        .filter(|&i| !sound.voices[i].gate)
+        .collect();
     assert!(
-        sound.voices[MUSIC_VOICE_CH0].gate,
-        "music channel 0 should still be gated on after a concurrent play_sfx call"
+        silenced.is_empty(),
+        "sfx must never steal a music channel; these went silent: {silenced:?}"
     );
 }
 
@@ -849,7 +860,7 @@ fn is_sfx_playing_false_for_stale_handle_after_voice_stolen() {
     vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
     // Fill the pool, then trigger one more so the oldest voice (whose
     // handle we captured first) gets stolen and its epoch bumped.
-    let fill_calls: String = (0..SFX_POOL_LEN)
+    let fill_calls: String = (0..SFX_VOICE_COUNT)
         .map(|_| "play_sfx(0)\n".to_string())
         .collect();
     vm.load_lua_source(
@@ -977,7 +988,7 @@ fn stop_sfx_on_an_active_handle_releases_it() {
 
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+    let gated_pool_voices = sound.voices[SFX_VOICE_START..]
         .iter()
         .filter(|v| v.gate)
         .count();
@@ -992,7 +1003,7 @@ fn stop_sfx_on_a_stale_handle_is_a_silent_no_op() {
     vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
     // Steal the first handle's voice by filling the pool past capacity,
     // then try to stop the now-stale first handle.
-    let calls: String = (0..SFX_POOL_LEN)
+    let calls: String = (0..SFX_VOICE_COUNT)
         .map(|_| "play_sfx(0)\n".to_string())
         .collect();
     vm.load_lua_source(
@@ -1015,12 +1026,12 @@ fn stop_sfx_on_a_stale_handle_is_a_silent_no_op() {
 
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+    let gated_pool_voices = sound.voices[SFX_VOICE_START..]
         .iter()
         .filter(|v| v.gate)
         .count();
     assert_eq!(
-        gated_pool_voices, SFX_POOL_LEN,
+        gated_pool_voices, SFX_VOICE_COUNT,
         "stopping a stale handle must not touch the voice that stole its slot"
     );
 }

@@ -13,7 +13,7 @@
 //! frame before `_update()` — `register_builtins` is shared between the two
 //! call sites so the API surface can't drift between them.
 
-use super::audio::{SFX_POOL_LEN, Sound};
+use super::audio::{SFX_VOICE_COUNT, Sound};
 use super::memory::Memory;
 use super::palette::Palette;
 use super::save_data::{SaveData, SaveDataError};
@@ -832,7 +832,7 @@ fn register_builtins<'scope, 'env>(
     palette: &'env RefCell<&'env mut Palette>,
     camera: &'env RefCell<&'env mut Camera>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
-    sfx_pool: &'env RefCell<&'env mut [PooledSfx; SFX_POOL_LEN]>,
+    sfx_pool: &'env RefCell<&'env mut [PooledSfx; SFX_VOICE_COUNT]>,
     next_sfx_age: &'env RefCell<&'env mut u64>,
     sound: Arc<Mutex<Sound>>,
     asset_banks: &'env RefCell<&'env mut AssetBanks>,

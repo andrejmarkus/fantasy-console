@@ -26,7 +26,7 @@ use self::sfx::{MusicPlayer, SfxPlayer};
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
-use crate::vm::audio::{SFX_POOL_LEN, Sound};
+use crate::vm::audio::{SFX_VOICE_COUNT, Sound};
 use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
@@ -184,9 +184,13 @@ pub struct Vm {
     camera: Camera,
     palette: Palette,
     sound: Arc<Mutex<Sound>>,
-    sfx_player: SfxPlayer,
     music_player: MusicPlayer,
-    sfx_pool: [PooledSfx; SFX_POOL_LEN],
+    sfx_pool: [PooledSfx; SFX_VOICE_COUNT],
+    /// Handle of the voice Studio's SFX-editor preview is holding, if any.
+    /// The preview borrows an ordinary sfx voice rather than owning one of
+    /// its own — with only two, a reserved third would be a third of the
+    /// console's polyphony spent on an editor.
+    preview_sfx: Option<u32>,
     next_sfx_age: u64,
     peripherals: PeripheralRegistry,
     frame_count: u32,
@@ -273,7 +277,7 @@ fn unpack_sfx_handle(handle: u32) -> (u32, u32) {
 /// (which can only borrow individual fields, never `&mut Vm`, from inside
 /// `lua.scope`) share one implementation.
 fn allocate_sfx_voice(
-    pool: &mut [PooledSfx; SFX_POOL_LEN],
+    pool: &mut [PooledSfx; SFX_VOICE_COUNT],
     next_age: &mut u64,
     id: u8,
     volume: f32,
@@ -302,7 +306,11 @@ fn allocate_sfx_voice(
 /// Stops the voice `handle` refers to, if it's still the current occupant
 /// of that pool slot. Silent no-op for a handle whose voice already
 /// finished or was stolen by a later `allocate_sfx_voice` call.
-fn release_sfx_voice(pool: &mut [PooledSfx; SFX_POOL_LEN], sound: &Arc<Mutex<Sound>>, handle: u32) {
+fn release_sfx_voice(
+    pool: &mut [PooledSfx; SFX_VOICE_COUNT],
+    sound: &Arc<Mutex<Sound>>,
+    handle: u32,
+) {
     let (slot, epoch) = unpack_sfx_handle(handle);
     let slot = slot as usize;
     if slot >= pool.len() || pool[slot].epoch != epoch {
@@ -311,7 +319,7 @@ fn release_sfx_voice(pool: &mut [PooledSfx; SFX_POOL_LEN], sound: &Arc<Mutex<Sou
 
     pool[slot].player.stop();
     if let Ok(mut s) = sound.try_lock() {
-        s.voices[audio::SFX_POOL_START + slot].gate = false;
+        s.voices[audio::SFX_VOICE_START + slot].gate = false;
     }
 }
 
@@ -327,9 +335,9 @@ impl Vm {
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(config.palette_size),
             sound: Arc::new(Mutex::new(Sound::default())),
-            sfx_player: SfxPlayer::new(),
             music_player: MusicPlayer::new(),
             sfx_pool: std::array::from_fn(|_| PooledSfx::new()),
+            preview_sfx: None,
             next_sfx_age: 0,
             peripherals,
             frame_count: 0,
@@ -405,7 +413,7 @@ impl Vm {
     /// from `_init()` on cart load — just keeps sounding forever once
     /// nothing else is stepping the VM to wind it down.
     pub fn stop_audio(&mut self) {
-        self.sfx_player.stop();
+        self.preview_sfx = None;
         self.music_player.stop();
         for pooled in &mut self.sfx_pool {
             pooled.player.stop();
@@ -728,16 +736,16 @@ impl Vm {
         true
     }
 
+    /// Previews sound effect `id` for Studio's SFX editor on an ordinary
+    /// sfx voice, replacing whatever the previous preview was playing.
     pub fn start_sfx(&mut self, id: u8) {
-        self.sfx_player.start(id);
+        self.stop_sfx();
+        self.preview_sfx = Some(self.play_sfx_voice(id, 1.0));
     }
 
     pub fn stop_sfx(&mut self) {
-        self.sfx_player.stop();
-        if let Ok(mut s) = self.sound.try_lock() {
-            let v = &mut s.voices[audio::LEGACY_SFX_VOICE];
-            v.gate = false;
-            v.epoch = v.epoch.wrapping_add(1);
+        if let Some(handle) = self.preview_sfx.take() {
+            self.stop_sfx_voice(handle);
         }
     }
 
@@ -748,16 +756,31 @@ impl Vm {
     pub fn stop_music(&mut self) {
         self.music_player.stop();
         if let Ok(mut s) = self.sound.try_lock() {
-            for idx in [audio::MUSIC_VOICE_CH0, audio::MUSIC_VOICE_CH1] {
-                let v = &mut s.voices[idx];
+            for v in s
+                .voices
+                .iter_mut()
+                .skip(audio::MUSIC_VOICE_START)
+                .take(audio::MUSIC_VOICE_COUNT)
+            {
                 v.gate = false;
                 v.epoch = v.epoch.wrapping_add(1);
             }
         }
     }
 
-    pub fn sfx_player(&self) -> &SfxPlayer {
-        &self.sfx_player
+    /// Snapshot of the voice Studio's SFX-editor preview is holding. Idle
+    /// once the preview finished, was stopped, or had its voice stolen by a
+    /// louder claim on the same two sfx voices.
+    pub fn sfx_player(&self) -> SfxPlayer {
+        self.preview_sfx
+            .and_then(|handle| {
+                let (slot, epoch) = unpack_sfx_handle(handle);
+                self.sfx_pool
+                    .get(slot as usize)
+                    .filter(|pooled| pooled.epoch == epoch && pooled.player.active)
+                    .map(|pooled| pooled.player.clone())
+            })
+            .unwrap_or_default()
     }
 
     pub fn music_player(&self) -> &MusicPlayer {

@@ -18,7 +18,7 @@
   import {
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
-    addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
+    addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_PATTERN_LEN, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
@@ -457,12 +457,13 @@
   }
 
   function updateMusic(pattern: number, bytes: number[]) {
-    const previous = studio.music.slice(pattern * 32, pattern * 32 + 32);
-    studio.music.splice(pattern * 32, 32, ...bytes);
-    studio.ram.splice(MEMORY.music + pattern * 32, 32, ...bytes);
-    void commitMutation(`Pattern ${pattern.toString().padStart(2, '0')}`, () => writeMemory(MEMORY.music + pattern * 32, bytes), () => {
-      studio.music.splice(pattern * 32, 32, ...previous);
-      studio.ram.splice(MEMORY.music + pattern * 32, 32, ...previous);
+    const at = pattern * MUSIC_PATTERN_LEN;
+    const previous = studio.music.slice(at, at + MUSIC_PATTERN_LEN);
+    studio.music.splice(at, MUSIC_PATTERN_LEN, ...bytes);
+    studio.ram.splice(MEMORY.music + at, MUSIC_PATTERN_LEN, ...bytes);
+    void commitMutation(`Pattern ${pattern.toString().padStart(2, '0')}`, () => writeMemory(MEMORY.music + at, bytes), () => {
+      studio.music.splice(at, MUSIC_PATTERN_LEN, ...previous);
+      studio.ram.splice(MEMORY.music + at, MUSIC_PATTERN_LEN, ...previous);
     });
   }
 

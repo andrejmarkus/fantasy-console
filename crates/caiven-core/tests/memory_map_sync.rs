@@ -9,7 +9,10 @@
 //! found in that file, and the value `MemRegion` actually expects — that's
 //! the fix.
 
-use caiven_core::memory::{MAP_H, MAP_W, MemRegion, RAM_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH};
+use caiven_core::memory::{
+    MAP_H, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_COUNT, MUSIC_PATTERN_ROWS, MemRegion,
+    RAM_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, SFX_BANK_LEN,
+};
 use regex::Regex;
 
 const IPC_TS: &str = include_str!("../../caiven-studio-ui/src/lib/ipc.ts");
@@ -174,4 +177,35 @@ fn ipc_ts_ram_size_matches_memory() {
         got, RAM_SIZE,
         "ipc.ts RAM_SIZE: found {got}, expected {RAM_SIZE} from caiven_core::memory"
     );
+}
+
+/// The Music and SFX editors hand-copy the audio bank shape to index their
+/// grids; a stale copy silently edits the wrong row or channel.
+#[test]
+fn ipc_ts_audio_bank_shape_matches_memory() {
+    let re = Regex::new(
+        r"export const (SFX_BANK_LEN|MUSIC_PATTERN_COUNT|MUSIC_PATTERN_ROWS|MUSIC_CHANNEL_COUNT) = ([0-9 *]+);",
+    )
+    .expect("valid regex");
+    for (name, want) in [
+        ("SFX_BANK_LEN", SFX_BANK_LEN),
+        ("MUSIC_PATTERN_COUNT", MUSIC_PATTERN_COUNT),
+        ("MUSIC_PATTERN_ROWS", MUSIC_PATTERN_ROWS),
+        ("MUSIC_CHANNEL_COUNT", MUSIC_CHANNEL_COUNT),
+    ] {
+        let found = re
+            .captures_iter(IPC_TS)
+            .find(|c| &c[1] == name)
+            .unwrap_or_else(|| panic!("ipc.ts: `export const {name}` not found"));
+        // The literals are written as products (`16 * 64`), so evaluate rather
+        // than parse — keeping the file readable shouldn't defeat the guard.
+        let got: usize = found[2]
+            .split('*')
+            .map(|part| part.trim().parse::<usize>().expect("numeric factor"))
+            .product();
+        assert_eq!(
+            got, want,
+            "ipc.ts {name}: found {got}, expected {want} from caiven_core::memory"
+        );
+    }
 }

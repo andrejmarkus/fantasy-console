@@ -120,20 +120,66 @@ re-index, so it was left alone rather than decided mid-task.
 Test: each ramp is monotone in brightness; the `ipc.ts` copy matches
 `DEFAULT_COLORS` slot for slot.
 
-### 2.4 Audio 8 voices → 6 typed voices
+### 2.4 Audio 8 voices → 6 typed voices — **done**
 
-- `crates/caiven-vm/src/vm/audio.rs:15-28` — `VOICE_COUNT` 8 → 6; replace
-  `MUSIC_VOICE_CH0`/`CH1`, `LEGACY_SFX_VOICE`, `SFX_POOL_START`/`LEN` with 4
-  typed music voices (2 pulse, 1 triangle, 1 noise) and 2 reserved sfx voices.
-- **Delete** `LEGACY_SFX_VOICE` and its call path — do not keep it working.
-- `crates/caiven-vm/src/vm/sfx.rs` and `play_sfx` / `play_music` semantics.
-- **Format change:** 2 → 4 music channels means 4 bytes per row, 64 bytes per
-  pattern, so `memory.rs:58` `MUSIC_BANK_LEN` 256 → 512 and the music region
-  widens. Cart music sections change shape.
-- Studio tracker UI wires only 2 channels today; 4 typed columns is a real UI
-  change and may be split into its own diff under 3.3.
+Landed; kept as the record of what the item covered.
 
-Test: an sfx played while music runs never silences a music channel.
+- `crates/caiven-vm/src/vm/audio.rs` — `VOICE_COUNT` is now
+  `MUSIC_VOICE_COUNT + SFX_VOICE_COUNT` = 4 + 2. `MUSIC_VOICE_CH0`/`CH1`,
+  `LEGACY_SFX_VOICE` and `SFX_POOL_START`/`LEN` are gone, replaced by
+  `MUSIC_VOICE_START`/`SFX_VOICE_START` and a `MUSIC_VOICE_KINDS` table fixing
+  each music channel's timbre by column: pulse, pulse, triangle, noise.
+- `VoiceKind::Triangle` is new, so the synth gained a third waveform. A unit
+  test asserts it ramps between its extremes instead of stepping — a triangle
+  that jumps is just a square with extra code.
+- **`LEGACY_SFX_VOICE` deleted.** Studio's SFX-editor preview used to own a
+  third voice class of its own; it now borrows an ordinary sfx voice through
+  `play_sfx_voice`, tracked by a `preview_sfx` handle. With only two sfx
+  voices, reserving a third for an editor would have spent a third of the
+  console's polyphony on Studio. `Vm::sfx_player()` consequently returns a
+  `SfxPlayer` snapshot rather than a `&SfxPlayer` — it reports the preview's
+  voice, or an idle player once that voice finished or was stolen.
+- `crates/caiven-vm/src/vm/sfx.rs` — `MusicPlayer`'s `ch0`/`ch1` became a
+  `channels: [SfxPlayer; MUSIC_VOICE_COUNT]` array, and `pattern_row_base`
+  strides by channel count instead of a hard-coded 2.
+- **Format change:** a music row is now one byte per typed channel, so
+  `MUSIC_BANK_LEN` went 256 → 512 (`8 patterns × 16 rows × 4 channels`) and
+  `MemRegion::Music`'s span 0x100 → 0x200. Unlike 2.2 there was no squeeze:
+  `Heap` absorbs the shift, since the address space grew to 96 KiB in 2.2.
+  Every region above Music moved up by 0x100 (RTC to 0xC700, collision to
+  0xC703, heap to 0x10703).
+- The pattern shape is now single-sourced in `caiven_core::memory` as
+  `MUSIC_PATTERN_COUNT`/`MUSIC_PATTERN_ROWS`/`MUSIC_CHANNEL_COUNT`, with
+  `MUSIC_BANK_LEN` derived from them and `audio::MUSIC_VOICE_COUNT` taking the
+  channel count from there — one number, not four.
+- Existing music data was converted rather than dropped: each old row `[a, b]`
+  became `[a, 0, 0, b]`. Old channel 0 was forced Square and old channel 1
+  forced Noise, so this puts each one in the new column with the same timbre.
+  Affects `projects/dev/catch`, `projects/showcase/catch` and
+  `projects/showcase/platformer`; their `.cav` binaries were rebuilt.
+- Studio's tracker went to four typed columns in this diff rather than waiting
+  for 3.3. Leaving it at two would not have been "unchanged" — the row stride
+  moved, so a two-column tracker would have written into the wrong rows. The
+  deeper tracker work (step/pattern copy-paste, song order, chaining) is still
+  3.3's.
+- `crates/caiven-studio-ui/src/lib/ipc.ts` — the audio bank shape is now
+  exported as constants and guarded by a new drift test in
+  `memory_map_sync.rs`, the same prevention pattern 2.2 and 2.3 established.
+  Two more stale copies in that file were found and fixed while there:
+  `sfx: Array(1024)` and `ram: Array(65536)` (the latter wrong since the
+  address space grew in 2.2).
+
+Test: `play_sfx_does_not_disturb_concurrent_music_playback` now fills every
+music channel, then makes more concurrent `play_sfx` calls than there are sfx
+voices, and asserts no music channel went silent — the reserved-voice promise
+stated as an executable claim.
+
+**Noted, not fixed:** `projects/showcase/platformer`'s music references SFX ids
+47 and 7, but a bank only has 16 slots. That data was already out of range
+before this change — the conversion preserved it exactly — so the cart's music
+was reading past the SFX bank both before and after. Fixing it means
+re-authoring the platformer's music, which is an art decision on a showcase
+cart, not part of this item.
 
 ### 2.5 Named banks
 
