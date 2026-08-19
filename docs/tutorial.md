@@ -46,8 +46,8 @@ function _update()
   end
 
   sprite(0, x, y)
-  draw_text("score", 2, 2, 7)
-  draw_number(score, 26, 2, 7)
+  draw_text("score", 2, 2, 15)
+  draw_number(score, 26, 2, 15)
 end
 ```
 

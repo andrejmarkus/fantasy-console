@@ -20,5 +20,5 @@ function _update()
 
   score = score + 1
 
-  draw_number(score, 2, 2, 7)
+  draw_number(score, 2, 2, 15)
 end

@@ -90,22 +90,24 @@ end
 end
 end
 function _draw()
-local bg = math.floor(lerp(1, 2, (math.sin(frame_count() * 0.03) + 1) / 2))
+-- Slots 10 and 11 are neighbours in the stone ramp, so stepping between them
+-- shades the background instead of changing its color.
+local bg = math.floor(lerp(10, 11, (math.sin(frame_count() * 0.03) + 1) / 2))
 fill_screen(bg)
 draw_map(0, GROUND_TILE_Y, 0, GROUND_Y, 16, 1)
-fill_rect(math.floor(coin_x), math.floor(coin_y), 8, 8, 10)
+fill_rect(math.floor(coin_x), math.floor(coin_y), 8, 8, 13)
 sprite(anim_sprite(walk_anim), math.floor(px), math.floor(py))
 Particles.draw()
-local ease_colors = { 11, 12, 14, 9 }
+local ease_colors = { 6, 8, 14, 3 }
 local labels = { "LIN", "EIN", "EOUT", "INOUT" }
 for i = 1, 4 do
 local y = 3 + (i - 1) * 7
-draw_text(labels[i], 2, y, 7)
+draw_text(labels[i], 2, y, 15)
 fill_rect(math.floor(tweens[i].val), y, 4, 4, ease_colors[i])
 end
-draw_text("ARROWS MOVE  A JUMP  B BURST", 2, 112, 6)
-draw_text("SCORE", 2, 120, 7)
-draw_number(score, 40, 120, 10)
-draw_text("HI", 130, 120, 7)
-draw_number(high_score, 150, 120, 10)
+draw_text("ARROWS MOVE  A JUMP  B BURST", 2, 112, 12)
+draw_text("SCORE", 2, 120, 15)
+draw_number(score, 40, 120, 13)
+draw_text("HI", 130, 120, 15)
+draw_number(high_score, 150, 120, 13)
 end

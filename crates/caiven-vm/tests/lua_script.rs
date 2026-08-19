@@ -5,6 +5,7 @@ use caiven_core::memory::{
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::vm::audio::{MUSIC_VOICE_CH0, MUSIC_VOICE_CH1, SFX_POOL_LEN, SFX_POOL_START};
+use caiven_vm::vm::palette::DEFAULT_COLORS;
 use caiven_vm::{
     LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
     describe_lua_error_location,
@@ -27,6 +28,14 @@ fn make_vm() -> Vm {
     ])
     .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
     vm
+}
+
+/// The opaque RGBA a palette slot renders as by default. Tests that only care
+/// *which* slot was drawn ask for it this way, so a palette redesign does not
+/// break assertions that were never about the colors.
+fn slot_rgba(index: usize) -> [u8; 4] {
+    let (r, g, b) = DEFAULT_COLORS[index];
+    [r, g, b, 255]
 }
 
 fn read_rgba(vm: &Vm, x: u32, y: u32) -> [u8; 4] {
@@ -56,8 +65,7 @@ fn lua_pset_draws_palette_color() {
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), None);
-    // Palette index 8 = red, (200, 60, 70) per DEFAULT_COLORS.
-    assert_eq!(read_rgba(&vm, 10, 20), [200, 60, 70, 255]);
+    assert_eq!(read_rgba(&vm, 10, 20), slot_rgba(8));
 }
 
 #[test]
@@ -87,7 +95,7 @@ fn lua_btn_reads_input_state() {
 
     assert_eq!(vm.get_fault(), None);
     // color index 1 = dark blue (32, 51, 123) confirms the true branch ran.
-    assert_eq!(read_rgba(&vm, 0, 0), [32, 51, 123, 255]);
+    assert_eq!(read_rgba(&vm, 0, 0), slot_rgba(1));
 }
 
 #[test]
@@ -117,7 +125,7 @@ fn lua_reads_select_at_index_six_and_nothing_beyond_it() {
 
     assert_eq!(vm.get_fault(), None);
     // color index 1 = dark blue (32, 51, 123) confirms the true branch ran.
-    assert_eq!(read_rgba(&vm, 0, 0), [32, 51, 123, 255]);
+    assert_eq!(read_rgba(&vm, 0, 0), slot_rgba(1));
 }
 
 #[test]
@@ -195,7 +203,7 @@ fn lua_button_released_out_of_range_index_is_false() {
 
     assert_eq!(vm.get_fault(), None);
     // color index 2 = dark purple (94, 44, 92) confirms the false branch ran.
-    assert_eq!(read_rgba(&vm, 0, 0), [94, 44, 92, 255]);
+    assert_eq!(read_rgba(&vm, 0, 0), slot_rgba(2));
 }
 
 #[test]
@@ -2468,9 +2476,9 @@ fn widescreen_bounds_and_text_width() {
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), None);
-    assert_eq!(read_rgba(&vm, 191, 0), [200, 60, 70, 255]);
+    assert_eq!(read_rgba(&vm, 191, 0), slot_rgba(8));
     // x = 192 is off-screen; it must not wrap around to (0, 1).
-    assert_ne!(read_rgba(&vm, 0, 1), [200, 60, 70, 255]);
+    assert_ne!(read_rgba(&vm, 0, 1), slot_rgba(8));
     // 24 tiles across, the width the charter's spec table names.
     assert_eq!(config.width / 8, 24);
 }

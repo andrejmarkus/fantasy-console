@@ -13,7 +13,7 @@ local function make_player()
       e.pos = e.pos + Vec2.new(dx, dy) * PLAYER_SPEED
     end,
     draw = function(e)
-      fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), 8, 8, 11)
+      fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), 8, 8, 6)
     end,
   }
 end
@@ -26,7 +26,7 @@ local function make_enemy(x, y)
       if e.pos.y > 200 then e.dead = true end
     end,
     draw = function(e)
-      fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), 8, 8, 9)
+      fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), 8, 8, 3)
     end,
   }
 end
@@ -39,8 +39,8 @@ title_scene = {
   end,
   draw = function(s)
     clear_screen()
-    draw_text("SCENES DEMO", 52, 50, 7)
-    draw_text("PRESS A TO PLAY", 47, 70, 6)
+    draw_text("SCENES DEMO", 52, 50, 15)
+    draw_text("PRESS A TO PLAY", 47, 70, 12)
   end,
 }
 
@@ -65,7 +65,7 @@ play_scene = {
   draw = function(s)
     clear_screen()
     Entities.draw_all()
-    draw_text("SURVIVE", 2, 2, 7)
+    draw_text("SURVIVE", 2, 2, 15)
   end,
 }
 
@@ -77,8 +77,8 @@ gameover_scene = {
   end,
   draw = function(s)
     clear_screen()
-    draw_text("GAME OVER", 57, 50, 8)
-    draw_text("PRESS A FOR TITLE", 42, 70, 6)
+    draw_text("GAME OVER", 57, 50, 2)
+    draw_text("PRESS A FOR TITLE", 42, 70, 12)
   end,
 }
 

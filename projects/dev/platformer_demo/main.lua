@@ -70,21 +70,21 @@ function _draw()
     for tx = 0, 15 do
       local id = get_collision(tx, ty)
       if id ~= 0 then
-        local color = 6
+        local color = 12
         if collision_is_one_way(id) then
-          color = 11
+          color = 6
         elseif collision_is_slope_left(id) or collision_is_slope_right(id) then
-          color = 10
+          color = 13
         elseif collision_is_solid(id) then
-          color = 5
+          color = 10
         end
         fill_rect(tx * SPRITE_SIZE, ty * SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, color)
       end
     end
   end
   for _, e in ipairs(Entities.list) do
-    fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), e.w, e.h, 9)
+    fill_rect(math.floor(e.pos.x), math.floor(e.pos.y), e.w, e.h, 3)
   end
-  fill_rect(math.floor(player.pos.x), math.floor(player.pos.y), player.w, player.h, 8)
-  draw_text("ARROWS MOVE  A JUMP", 2, 2, 7)
+  fill_rect(math.floor(player.pos.x), math.floor(player.pos.y), player.w, player.h, 2)
+  draw_text("ARROWS MOVE  A JUMP", 2, 2, 15)
 end

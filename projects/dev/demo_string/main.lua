@@ -3,7 +3,7 @@
 
 function _update()
   clear_screen()
-  draw_text("HELLO, WORLD!", 2, 2, 7)
-  draw_text("REAL LUA STRINGS", 2, 12, 6)
-  draw_text("FOO" .. "BAR", 2, 22, 5)
+  draw_text("HELLO, WORLD!", 2, 2, 15)
+  draw_text("REAL LUA STRINGS", 2, 12, 12)
+  draw_text("FOO" .. "BAR", 2, 22, 10)
 end

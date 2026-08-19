@@ -26,15 +26,21 @@ function _update()
   end
 
   sprite(0, player.x, player.y)
-  draw_text("score", 2, 2, 7)
-  draw_number(player.score, 26, 2, 7)
+  draw_text("score", 2, 2, 15)
+  draw_number(player.score, 26, 2, 15)
 end`;
 
+/**
+ * Console default palette. Mirrors `caiven_vm::vm::palette::DEFAULT_COLORS`, and a
+ * drift test in `crates/caiven-core/tests/memory_map_sync.rs` keeps the two in step.
+ * Slots 1-12 are four hue ramps in dark → mid → light order; 0 and 15 are black and
+ * white, 13 and 14 the accents.
+ */
 export const defaultPalette = [
-  '#000000', '#1D2B53', '#7E2553', '#008751',
-  '#AB5236', '#5F574F', '#C2C3C7', '#FFF1E8',
-  '#FF004D', '#FFA300', '#FFEC27', '#00E436',
-  '#29ADFF', '#83769C', '#FF77A8', '#FFCCAA',
+  '#10101A', '#6E1F2E', '#C2372F', '#F2803C',
+  '#1E3A2A', '#3E8A4A', '#86CF62', '#23345E',
+  '#3D6DC4', '#74C0E8', '#3A3340', '#7A6E72',
+  '#C3B5A8', '#F5C542', '#E060A0', '#F4F1E6',
 ];
 
 export const fallbackTemplates: CartTemplateSummary[] = [
@@ -123,7 +129,7 @@ const fallback: StudioBootstrap = {
   ],
   palette: defaultPalette,
   spriteSheet: [...defaultSprite, ...Array(255 * 64).fill(0)],
-  map: Array(4096).fill(0),
+  map: Array(MAP_LEN).fill(0),
   spriteBanks: [0],
   mapBanks: [0],
   activeSpriteBank: 0,

@@ -77,16 +77,48 @@ Guest RAM is untouched: map and collision live in their own regions.
 Test: a tile written at (127, 127) lands, one at (128, 0) is dropped rather
 than wrapping onto row 1, and the collision region starts past the map's end.
 
-### 2.3 Palette redesign
+### 2.3 Palette redesign — **done**
 
-- `crates/caiven-vm/src/vm/palette.rs:6` — `DEFAULT_COLORS`, replaced with the
-  charter's structure: 4 hue ramps × 3 shades + black + white + 2 accents.
-- Studio palette editor default swatches.
-- Showcase cart art re-indexed to the new slots.
-- `docs/brand-colors.md` if it documents the console palette (check — it may be
-  brand-only).
+Landed; kept as the record of what the item covered. Count stayed 16, so no
+format changed — only the RGB values and the slot meanings moved.
 
-Count stays 16, so no format changes; only the RGB values move.
+- `crates/caiven-vm/src/vm/palette.rs` — `DEFAULT_COLORS` rebuilt to the
+  charter's structure. Slot layout: 0 black, 1-12 four ramps (ember, moss, sky,
+  stone) in dark → mid → light order, 13-14 the gold and magenta accents, 15
+  white. The ordering is the teaching aid: the shadow of any color is the slot
+  before it and the highlight is the slot after it, in every ramp. Three unit
+  tests hold that property (ramps climb in brightness, black and white bound the
+  range, shade tiers stay separated across ramps).
+- `docs/brand-colors.md` was checked and is **brand-only** — logo, Port and
+  Studio chrome. It does not document the console palette, so it did not change.
+- `crates/caiven-studio-ui/src/lib/ipc.ts` — the browser-fallback swatches had
+  **already drifted to PICO-8's exact palette**, so Studio-in-a-browser showed
+  colors the VM never rendered. Corrected, and a new drift test
+  (`crates/caiven-vm/tests/palette_sync.rs`) now parses the copy and fails on
+  any future divergence. The same file still had `map: Array(4096)` left over
+  from 2.2; it now uses `MAP_LEN`.
+- `crates/caiven-vm/tests/lua_script.rs` — four tests about input and bounds
+  asserted hard-coded palette RGB as sentinels and broke on the recolor. They
+  now derive the expected pixel from `DEFAULT_COLORS` through a `slot_rgba`
+  helper, so a future palette change cannot break assertions that were never
+  about color.
+- Carts re-indexed: `stdlib_demo` (showcase and dev, Lua plus `sprites.png`
+  pixel indices and PLTE), `scenes_demo` (showcase and dev), and the dev carts
+  `demo_string`, `demo_table`, `platformer_demo`, `sprite_flip_rotate`.
+
+Not re-indexed, deliberately: `catch`, `movement`, `tiles`, `sprite`, `smoke`,
+`audio_test`, `stdlib_all_modules`, `stdlib_core_only` and the showcase
+`platformer` all overwrite their slots with `set_palette_color` in `_init`, so
+their indices name their own colors and have no default slot to move to.
+
+**Open question for the owner:** the showcase `platformer` replaces all 16 slots
+with hand-picked colors. That predates a palette worth using, and re-authoring
+it onto the default ramps would make the flagship cart actually show the new
+palette — but it is an art decision on a showcase cart, not a mechanical
+re-index, so it was left alone rather than decided mid-task.
+
+Test: each ramp is monotone in brightness; the `ipc.ts` copy matches
+`DEFAULT_COLORS` slot for slot.
 
 ### 2.4 Audio 8 voices → 6 typed voices
 

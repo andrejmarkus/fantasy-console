@@ -190,8 +190,8 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
-> screen has landed; the rest of the hardware redesign is approved and still
-> pending: 128×128 map, redesigned 16-color palette, 6 typed audio voices,
+> screen, the 128×128 map and the redesigned palette have landed; the rest of
+> the hardware redesign is approved and still pending: 6 typed audio voices,
 > named banks, and `dset`/`dget` removed. Target spec:
 > [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
@@ -202,13 +202,34 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | **Resolution**    | 192×128, 24×16 tiles (upscaled 4×)                                                |
 | **RAM**           | 64 KiB general purpose (Work + Heap); the asset windows below are mapped alongside it, not carved out of it. Script state lives in the Lua VM, not guest RAM |
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
-| **Palette**       | 16 colors                                                                         |
+| **Palette**       | 16 colors: 4 hue ramps × 3 shades, plus black, white and 2 accents (see below)     |
 | **Sprites**       | 256 × 8×8 pixels per bank; bank 0 always available                                |
 | **Map**           | 128×128 tiles per bank; bank 0 always available                                   |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
 as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
 fixed sprite/map RAM windows. Changes made through RAM survive later switches.
+
+### Palette
+
+The default 16 colors are laid out so shading never needs a color-theory
+decision: slots 1–12 are four hue ramps in dark → mid → light order, so the
+darker shade of any color is the slot before it and the highlight is the slot
+after it. Slot 0 is black, slot 15 is white, and 13–14 are the two accents.
+
+| Slot | Color | RGB | Typical use |
+| :--- | :--- | :--- | :--- |
+| `0` | black | `16, 16, 26` | background, outlines |
+| `1` `2` `3` | ember dark / mid / light | `110, 31, 46` · `194, 55, 47` · `242, 128, 60` | fire, blood, brick, danger |
+| `4` `5` `6` | moss dark / mid / light | `30, 58, 42` · `62, 138, 74` · `134, 207, 98` | foliage, grass, slime |
+| `7` `8` `9` | sky dark / mid / light | `35, 52, 94` · `61, 109, 196` · `116, 192, 232` | water, sky, cold metal |
+| `10` `11` `12` | stone dark / mid / light | `58, 51, 64` · `122, 110, 114` · `195, 181, 168` | ground, walls, wood, skin |
+| `13` | gold accent | `245, 197, 66` | coins, highlights, sun |
+| `14` | magenta accent | `224, 96, 160` | magic, focus, alarm |
+| `15` | white | `244, 241, 230` | text, sparks |
+
+`set_palette_color(index, r, g, b)` replaces any slot at runtime, so a cart that
+wants its own colors is never stuck with these.
 
 ### Memory Map
 
