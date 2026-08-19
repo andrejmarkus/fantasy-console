@@ -181,23 +181,49 @@ was reading past the SFX bank both before and after. Fixing it means
 re-authoring the platformer's music, which is an art decision on a showcase
 cart, not part of this item.
 
-### 2.5 Named banks
+### 2.5 Named banks — **done**
 
 Numeric ids removed, not aliased.
 
-- `crates/caiven-vm/src/vm/lua_exec.rs:1266-1336` — the five `load_*_bank`
-  builtins take a string name.
-- `crates/caiven-vm/src/vm/mod.rs:42-91` — bank maps keyed by name instead of
-  `u8`; the Map → Collision companion rule follows the name.
-- `crates/caiven-cart/src/section.rs:112-126` — payload is currently
-  `[bank_id u8][data…]`; becomes a length-prefixed name plus data. Validate the
-  name (length cap, allowed characters) at decode time — this is a cart-format
-  boundary and untrusted input.
-- `crates/caiven-cart/src/project.rs:139-152` — project filenames
-  `sprites_1.png` → `sprites_forest.png`; sanitise names against path traversal
-  when mapping name to filename.
+- `crates/caiven-vm/src/vm/lua_exec.rs` — the five `load_*_bank` builtins
+  take a string name.
+- `crates/caiven-vm/src/vm/mod.rs` — `AssetBanks`'s bank maps are keyed by
+  `String` instead of `u8`; the Map → Collision companion rule follows the
+  name. The reserved name `"default"` (`caiven_cart::DEFAULT_BANK_NAME`) is
+  the bank that auto-loads at boot — it can be switched back to like any
+  other name but never created or removed (`create_asset_bank`/
+  `remove_asset_bank` reject it, mirroring the old id-`0` special case).
+- `crates/caiven-cart/src/section.rs` — payload changed from `[bank_id
+  u8][data…]` to `[name_len u8][name][data…]`. `is_valid_bank_name` (also
+  exported) gates both the encoder and decoder: 1-31 ASCII letters, digits,
+  `_`, or `-`. `decode_asset_bank` is the untrusted-input boundary — a
+  truncated section, non-UTF-8 name bytes, or a name failing the charset
+  all return `None` rather than panicking, and the charset excludes `.`,
+  `/`, `\`, so a validated name can never escape a directory when later
+  joined into a project-file path.
+- **Format version bumped 3 → 4** (`crates/caiven-cart/src/format.rs`),
+  `MIN_SUPPORTED_CART_VERSION` raised to 4. A pre-2.5 cart's numeric bank id
+  would misparse as a name length under the new decoder, so old carts are
+  rejected outright with `CartError::UnsupportedCartVersion` rather than
+  silently misread — no migration exists because nothing is in production.
+  All showcase/dev `.cav` files rebuilt via `scripts/demo-carts/build.sh`.
+- `crates/caiven-cart/src/project.rs` — project filenames
+  `sprites_1.png` → `sprites_forest.png`. The read side no longer scans
+  `1..=u8::MAX` for candidate ids; it lists the project directory once per
+  bank kind and keeps filenames matching `{stem}_{name}.{png,hex}` where
+  `name` passes `is_valid_bank_name` (`bank_file_name`) — the same gate, so
+  a hand-placed file with a path-traversal or oversized name is silently
+  skipped rather than loaded.
 - `crates/caiven-vm/src/vm/api_registry.rs` — signatures and doc strings.
-- Studio bank picker in `Workspace.svelte`.
+- Studio: `tauri_app.rs`'s `AssetBankPayload`/`BootstrapPayload`/
+  `TickPayload` fields and the `studio_asset_bank` Tauri command switched
+  from `Vec<u8>`/`u8` to `Vec<String>`/`String`; `"create"` now requires the
+  caller to supply a name (no more auto-picking the lowest free id) and
+  validates it with `is_valid_bank_name` before touching the VM. Frontend
+  (`Workspace.svelte`) prompts for a name on bank creation, validated
+  client-side against the same charset before the round-trip; the bank
+  `<select>` and delete button work off names, and delete is disabled on
+  `"default"`.
 
 The default bank stays auto-loading, so a cart that never calls `load_*_bank`
 is unaffected.

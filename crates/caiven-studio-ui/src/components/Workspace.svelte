@@ -41,20 +41,20 @@
     palette: string[];
     spriteSheet: number[];
     map: number[];
-    spriteBanks: number[];
-    mapBanks: number[];
-    activeSpriteBank: number;
-    activeMapBank: number;
+    spriteBanks: string[];
+    mapBanks: string[];
+    activeSpriteBank: string;
+    activeMapBank: string;
     collision: number[];
     collisionTypes: CollisionType[];
     sfx: number[];
     music: number[];
-    paletteBanks: number[];
-    sfxBanks: number[];
-    musicBanks: number[];
-    activePaletteBank: number;
-    activeSfxBank: number;
-    activeMusicBank: number;
+    paletteBanks: string[];
+    sfxBanks: string[];
+    musicBanks: string[];
+    activePaletteBank: string;
+    activeSfxBank: string;
+    activeMusicBank: string;
     cartSize: CartSize;
     audio: AudioState;
     assetIndex: AssetIndex;
@@ -84,7 +84,7 @@
     onCollision: (edits: CollisionEdit[]) => void;
     onCollisionTypes: (types: CollisionType[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
-    onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void | Promise<boolean | void>;
+    onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', name?: string) => void | Promise<boolean | void>;
     onSfx: (slot: number, bytes: number[]) => void;
     onMusic: (pattern: number, bytes: number[]) => void;
     onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
@@ -932,6 +932,22 @@
     updatePalette(`#${channels.map((part) => part.toString(16).padStart(2, '0')).join('')}`);
   }
 
+  const BANK_NAME_PATTERN = /^[A-Za-z0-9_-]{1,31}$/;
+
+  /// Prompts for a new bank name; returns `undefined` on cancel or a name
+  /// failing the same charset the Rust decoder enforces (letters, digits,
+  /// `_`, `-`, 1-31 chars) — checked here so a bad name never round-trips
+  /// through the backend just to bounce back as an error toast.
+  function promptNewBankName(kind: string): string | undefined {
+    const name = window.prompt(`Name the new ${kind} bank (letters, digits, _, -):`)?.trim();
+    if (!name) return undefined;
+    if (!BANK_NAME_PATTERN.test(name)) {
+      window.alert(`"${name}" isn't a valid bank name — use 1-31 letters, digits, _, or -.`);
+      return undefined;
+    }
+    return name;
+  }
+
   function signature(entry: ApiEntry) {
     return `${entry.name}(${entry.params.map((p) => `${p.name}: ${p.ty}`).join(', ')})`;
   }
@@ -1022,15 +1038,15 @@
       <Button variant="ghost" class={screen === 'palette' ? 'active' : undefined} onclick={() => onNavigate('palette')}><Pipette size={15} />Palette</Button>
       {#if screen === 'sprites' || screen === 'map' || screen === 'palette'}
         {@const bankKind = screen === 'sprites' ? 'sprites' : screen === 'map' ? 'map' : 'palette'}
-        {@const bankIds = screen === 'sprites' ? spriteBanks : screen === 'map' ? mapBanks : paletteBanks}
+        {@const bankNames = screen === 'sprites' ? spriteBanks : screen === 'map' ? mapBanks : paletteBanks}
         {@const activeBank = screen === 'sprites' ? activeSpriteBank : screen === 'map' ? activeMapBank : activePaletteBank}
         <div class="bank-picker">
           <span>Bank</span>
-          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', Number(select.value)) === false) select.value = String(activeBank); }}>
-            {#each bankIds as id}<option value={id}>{id}</option>{/each}
+          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', select.value) === false) select.value = activeBank; }}>
+            {#each bankNames as name}<option value={name}>{name}</option>{/each}
           </select>
-          <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>
-          <button class="danger" disabled={activeBank === 0} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
+          <button title={`Create ${bankKind} bank`} onclick={() => { const name = promptNewBankName(bankKind); if (name) onAssetBank(bankKind, 'create', name); }}><Plus size={14} /></button>
+          <button class="danger" disabled={activeBank === 'default'} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
         </div>
       {/if}
       <code>{screen === 'sprites' ? `${assetStats[0]?.used ?? 0} of 256 used` : screen === 'map' ? `${MAP_W} × ${MAP_H} tiles` : '16 colors'}</code>
@@ -1041,15 +1057,15 @@
       <Button variant="ghost" class={screen === 'music' ? 'active' : undefined} onclick={() => onNavigate('music')}><Music size={15} />Music</Button>
       {#if screen === 'sfx' || screen === 'music'}
         {@const bankKind = screen === 'sfx' ? 'sfx' : 'music'}
-        {@const bankIds = screen === 'sfx' ? sfxBanks : musicBanks}
+        {@const bankNames = screen === 'sfx' ? sfxBanks : musicBanks}
         {@const activeBank = screen === 'sfx' ? activeSfxBank : activeMusicBank}
         <div class="bank-picker">
           <span>Bank</span>
-          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', Number(select.value)) === false) select.value = String(activeBank); }}>
-            {#each bankIds as id}<option value={id}>{id}</option>{/each}
+          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', select.value) === false) select.value = activeBank; }}>
+            {#each bankNames as name}<option value={name}>{name}</option>{/each}
           </select>
-          <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>
-          <button class="danger" disabled={activeBank === 0} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
+          <button title={`Create ${bankKind} bank`} onclick={() => { const name = promptNewBankName(bankKind); if (name) onAssetBank(bankKind, 'create', name); }}><Plus size={14} /></button>
+          <button class="danger" disabled={activeBank === 'default'} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
         </div>
       {/if}
       <code>{screen === 'sfx' ? `${assetStats[1]?.used ?? 0} of 16 slots used` : `${assetStats[2]?.used ?? 0} of 8 patterns`}</code>

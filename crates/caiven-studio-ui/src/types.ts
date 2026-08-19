@@ -45,7 +45,7 @@ export interface DebugChild { key: string; value: string; nodeId?: string | null
 export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
 export interface CartSize { packedBytes: number; maxBytes: number; }
-export interface AssetBankState { kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music'; ids: number[]; active: number; data: number[]; }
+export interface AssetBankState { kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music'; names: string[]; active: string; data: number[]; }
 export interface AudioState {
   sfxActive: boolean; sfxId: number; sfxStep: number;
   musicActive: boolean; musicPattern: number; musicRow: number; musicLoop: boolean;
@@ -115,20 +115,20 @@ export interface StudioBootstrap {
   palette: string[];
   spriteSheet: number[];
   map: number[];
-  spriteBanks: number[];
-  mapBanks: number[];
-  activeSpriteBank: number;
-  activeMapBank: number;
+  spriteBanks: string[];
+  mapBanks: string[];
+  activeSpriteBank: string;
+  activeMapBank: string;
   collision: number[];
   collisionTypes: CollisionType[];
   sfx: number[];
   music: number[];
-  paletteBanks: number[];
-  activePaletteBank: number;
-  sfxBanks: number[];
-  activeSfxBank: number;
-  musicBanks: number[];
-  activeMusicBank: number;
+  paletteBanks: string[];
+  activePaletteBank: string;
+  sfxBanks: string[];
+  activeSfxBank: string;
+  musicBanks: string[];
+  activeMusicBank: string;
   ram: number[];
   globals: GlobalValue[];
   watches: GlobalValue[];
@@ -159,11 +159,11 @@ export interface TickSnapshot {
   audio: AudioState;
   diagnostics: Diagnostic[];
   output: string[];
-  activeSpriteBank: number;
-  activeMapBank: number;
-  activePaletteBank: number;
-  activeSfxBank: number;
-  activeMusicBank: number;
+  activeSpriteBank: string;
+  activeMapBank: string;
+  activePaletteBank: string;
+  activeSfxBank: string;
+  activeMusicBank: string;
 }
 
 declare global {

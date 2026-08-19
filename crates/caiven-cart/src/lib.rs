@@ -16,8 +16,8 @@ pub use header::CartHeader;
 pub use minify::{minify_cart_lua, minify_lua};
 pub use project::{is_project, load_project, project_lua_files, save_project};
 pub use section::{
-    CartSection, SectionKind, decode_asset_bank, decode_collision_types, encode_asset_bank,
-    encode_collision_types,
+    CartSection, DEFAULT_BANK_NAME, MAX_BANK_NAME_LEN, SectionKind, decode_asset_bank,
+    decode_collision_types, encode_asset_bank, encode_collision_types, is_valid_bank_name,
 };
 
 use std::path::Path;

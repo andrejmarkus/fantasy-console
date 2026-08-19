@@ -323,6 +323,7 @@ mod tests {
     #[test]
     fn seeded_sprites_round_trip_through_vm_and_disk() {
         use crate::app::cart_io::{self, CartMeta};
+        use caiven_cart::DEFAULT_BANK_NAME;
         use caiven_cart::{CartHeader, SectionKind};
         use caiven_vm::AssetBankKind;
 
@@ -346,8 +347,8 @@ mod tests {
         // Sprite bank in RAM reflects the seed immediately.
         let live = console
             .vm
-            .asset_bank_bytes(AssetBankKind::Sprites, 0)
-            .expect("sprite bank 0");
+            .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+            .expect("default sprite bank");
         assert!(live.iter().any(|&pixel| pixel != 0));
 
         // And it round-trips through a project save/load, exactly like a
@@ -367,8 +368,8 @@ mod tests {
             .expect("reload project");
         let reloaded_bank = reloaded
             .vm
-            .asset_bank_bytes(AssetBankKind::Sprites, 0)
-            .expect("reloaded sprite bank 0");
+            .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+            .expect("reloaded default sprite bank");
         assert_eq!(reloaded_bank, live);
 
         std::fs::remove_dir_all(&dir).ok();

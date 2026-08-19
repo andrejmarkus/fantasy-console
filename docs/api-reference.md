@@ -24,11 +24,29 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `sprite(id, x, y, flip_x, flip_y, rotate)` | Draw 8×8 sprite (camera-aware); `flip_x`/`flip_y` mirror it (default `false`), `rotate` is `0`/`90`/`180`/`270` degrees clockwise (default `0`, applied before flipping — any other value is a Lua error) |
 | `draw_map(cell_x, cell_y, sx, sy, w, h)`  | Draw a block of the tilemap                                    |
 | `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell                                        |
-| `load_sprite_bank(id)`                    | Copy sprite bank into sprite RAM; returns `false` when missing |
-| `load_map_bank(id)`                       | Copy map bank into map RAM; returns `false` when missing       |
+| `load_sprite_bank(name)` / `load_map_bank(name)` | Switch the sprite / map RAM window to a named bank — see [Banking](#banking) |
 | `get_collision(tx, ty)` / `set_collision(tx, ty, value)` | Read / write the collision-type id at a map cell; `0`/no-op if out of bounds |
 | `collision_type_id(name)` / `collision_type_name(id)`    | Look up a collision type's id by name (`0` if unknown) / name by id (`""` if undefined) |
 | `collision_is_solid(id)` / `collision_is_one_way(id)` / `collision_is_slope_left(id)` / `collision_is_slope_right(id)` | Whether a collision type is flagged solid / one-way / a left or right 45° slope; undefined ids are always `false` for every check |
+
+## Banking
+
+Sprites, map (+ its collision companion), palette, SFX, and music each have
+one **default** bank that auto-loads at boot, plus any number of named
+additional banks a cart creates in Studio. A bank name is 1-31 letters,
+digits, `_`, or `-`.
+
+| Function                    | Description                                                                 |
+| :----------------------------| :---------------------------------------------------------------------------|
+| `load_sprite_bank(name)`    | Copy the named sprite bank into sprite RAM; `false` if it does not exist    |
+| `load_map_bank(name)`       | Copy the named map bank into map RAM, its collision bank along with it; `false` if it does not exist |
+| `load_palette_bank(name)`   | Copy the named palette bank into the render-time palette; `false` if it does not exist |
+| `load_sfx_bank(name)`       | Copy the named SFX bank into SFX RAM; `false` if it does not exist          |
+| `load_music_bank(name)`     | Copy the named music bank into music RAM; `false` if it does not exist      |
+
+`"default"` always exists and can be switched back to like any other name; it
+is the only bank that cannot be created or removed. A cart that never calls a
+`load_*_bank` function only ever sees its default banks.
 
 ## Input
 
@@ -190,10 +208,9 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
-> screen, the 128×128 map, the redesigned palette and the 6 typed audio
-> voices have landed; the rest of
-> the hardware redesign is approved and still pending: named banks and
-> `dset`/`dget` removed. Target spec:
+> screen, the 128×128 map, the redesigned palette, the 6 typed audio
+> voices, and named banks have landed; the rest of the hardware redesign is
+> approved and still pending: `dset`/`dget` removed. Target spec:
 > [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 
@@ -204,13 +221,14 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | **RAM**           | 64 KiB general purpose (Work + Heap); the asset windows below are mapped alongside it, not carved out of it. Script state lives in the Lua VM, not guest RAM |
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
 | **Palette**       | 16 colors: 4 hue ramps × 3 shades, plus black, white and 2 accents (see below)     |
-| **Sprites**       | 256 × 8×8 pixels per bank; bank 0 always available                                |
-| **Map**           | 128×128 tiles per bank; bank 0 always available                                   |
+| **Sprites**       | 256 × 8×8 pixels per bank; `"default"` bank always available                      |
+| **Map**           | 128×128 tiles per bank; `"default"` bank always available                         |
 | **Audio**         | 6 voices: 4 typed music channels (pulse 1, pulse 2, triangle, noise) + 2 voices reserved for sound effects (see below) |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
-as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
-fixed sprite/map RAM windows. Changes made through RAM survive later switches.
+as `sprites_<name>.png` and `map_<name>.png`; runtime calls copy the selected
+bank into the fixed sprite/map RAM window. Changes made through RAM survive
+later switches.
 
 ### Palette
 

@@ -7,7 +7,7 @@
 use crate::app::cart_io::{self, CartMeta};
 use crate::debugger::{Breakpoint, Debugger};
 use crate::studio::{SourceFile, asset_index, cart, examples, recent, templates};
-use caiven_cart::{SectionKind, encode_asset_bank};
+use caiven_cart::{DEFAULT_BANK_NAME, SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
@@ -199,8 +199,8 @@ struct CartSizePayload {
 #[serde(rename_all = "camelCase")]
 struct AssetBankPayload {
     kind: String,
-    ids: Vec<u8>,
-    active: u8,
+    names: Vec<String>,
+    active: String,
     data: Vec<u8>,
 }
 
@@ -282,20 +282,20 @@ struct BootstrapPayload {
     palette: Vec<String>,
     sprite_sheet: Vec<u8>,
     map: Vec<u8>,
-    sprite_banks: Vec<u8>,
-    map_banks: Vec<u8>,
-    active_sprite_bank: u8,
-    active_map_bank: u8,
+    sprite_banks: Vec<String>,
+    map_banks: Vec<String>,
+    active_sprite_bank: String,
+    active_map_bank: String,
     collision: Vec<u8>,
     collision_types: Vec<CollisionTypePayload>,
     sfx: Vec<u8>,
     music: Vec<u8>,
-    palette_banks: Vec<u8>,
-    active_palette_bank: u8,
-    sfx_banks: Vec<u8>,
-    active_sfx_bank: u8,
-    music_banks: Vec<u8>,
-    active_music_bank: u8,
+    palette_banks: Vec<String>,
+    active_palette_bank: String,
+    sfx_banks: Vec<String>,
+    active_sfx_bank: String,
+    music_banks: Vec<String>,
+    active_music_bank: String,
     ram: Vec<u8>,
     globals: Vec<GlobalPayload>,
     watches: Vec<GlobalPayload>,
@@ -328,11 +328,11 @@ struct TickPayload {
     audio: AudioPayload,
     diagnostics: Vec<DiagnosticPayload>,
     output: Vec<String>,
-    active_sprite_bank: u8,
-    active_map_bank: u8,
-    active_palette_bank: u8,
-    active_sfx_bank: u8,
-    active_music_bank: u8,
+    active_sprite_bank: String,
+    active_map_bank: String,
+    active_palette_bank: String,
+    active_sfx_bank: String,
+    active_music_bank: String,
 }
 
 #[derive(Clone)]
@@ -366,11 +366,11 @@ impl Default for SharedSnapshot {
                 },
                 diagnostics: Vec::new(),
                 output: Vec::new(),
-                active_sprite_bank: 0,
-                active_map_bank: 0,
-                active_palette_bank: 0,
-                active_sfx_bank: 0,
-                active_music_bank: 0,
+                active_sprite_bank: DEFAULT_BANK_NAME.to_string(),
+                active_map_bank: DEFAULT_BANK_NAME.to_string(),
+                active_palette_bank: DEFAULT_BANK_NAME.to_string(),
+                active_sfx_bank: DEFAULT_BANK_NAME.to_string(),
+                active_music_bank: DEFAULT_BANK_NAME.to_string(),
             },
         }
     }
@@ -513,7 +513,7 @@ enum CoreCommand {
     AssetBank {
         kind: String,
         action: String,
-        id: Option<u8>,
+        name: Option<String>,
         reply: mpsc::Sender<Result<AssetBankPayload, String>>,
     },
     PreparePublish(mpsc::Sender<Result<PathBuf, String>>),
@@ -841,10 +841,18 @@ impl StudioCore {
             palette: palette_hex(&self.console),
             sprite_sheet: sprite_sheet.clone(),
             map: map.clone(),
-            sprite_banks: self.console.vm.asset_bank_ids(AssetBankKind::Sprites),
-            map_banks: self.console.vm.asset_bank_ids(AssetBankKind::Map),
-            active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
-            active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
+            sprite_banks: self.console.vm.asset_bank_names(AssetBankKind::Sprites),
+            map_banks: self.console.vm.asset_bank_names(AssetBankKind::Map),
+            active_sprite_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Sprites)
+                .to_string(),
+            active_map_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Map)
+                .to_string(),
             collision,
             collision_types: self
                 .console
@@ -855,12 +863,24 @@ impl StudioCore {
                 .collect(),
             sfx: sfx.clone(),
             music: music.clone(),
-            palette_banks: self.console.vm.asset_bank_ids(AssetBankKind::Palette),
-            active_palette_bank: self.console.vm.active_asset_bank(AssetBankKind::Palette),
-            sfx_banks: self.console.vm.asset_bank_ids(AssetBankKind::Sfx),
-            active_sfx_bank: self.console.vm.active_asset_bank(AssetBankKind::Sfx),
-            music_banks: self.console.vm.asset_bank_ids(AssetBankKind::Music),
-            active_music_bank: self.console.vm.active_asset_bank(AssetBankKind::Music),
+            palette_banks: self.console.vm.asset_bank_names(AssetBankKind::Palette),
+            active_palette_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Palette)
+                .to_string(),
+            sfx_banks: self.console.vm.asset_bank_names(AssetBankKind::Sfx),
+            active_sfx_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Sfx)
+                .to_string(),
+            music_banks: self.console.vm.asset_bank_names(AssetBankKind::Music),
+            active_music_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Music)
+                .to_string(),
             ram: read_region(&self.console, 0, RAM_SIZE),
             globals: self.globals(),
             watches: self.watches(),
@@ -909,11 +929,31 @@ impl StudioCore {
             audio: self.audio_payload(),
             diagnostics: self.diagnostics.clone(),
             output: self.output.clone(),
-            active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
-            active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
-            active_palette_bank: self.console.vm.active_asset_bank(AssetBankKind::Palette),
-            active_sfx_bank: self.console.vm.active_asset_bank(AssetBankKind::Sfx),
-            active_music_bank: self.console.vm.active_asset_bank(AssetBankKind::Music),
+            active_sprite_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Sprites)
+                .to_string(),
+            active_map_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Map)
+                .to_string(),
+            active_palette_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Palette)
+                .to_string(),
+            active_sfx_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Sfx)
+                .to_string(),
+            active_music_bank: self
+                .console
+                .vm
+                .active_asset_bank(AssetBankKind::Music)
+                .to_string(),
         }
     }
 
@@ -989,7 +1029,7 @@ impl StudioCore {
         &mut self,
         kind: &str,
         action: &str,
-        id: Option<u8>,
+        name: Option<String>,
     ) -> Result<AssetBankPayload, String> {
         // Only kinds a user can pick from Studio's UI are dispatchable here.
         // Collision has no entry — it's a *companion* bank (see
@@ -1009,18 +1049,21 @@ impl StudioCore {
         match action {
             "read" => {}
             "select" => {
-                let id = id.ok_or_else(|| "Bank id required".to_string())?;
-                if !self.console.vm.select_asset_bank(bank_kind, id) {
-                    return Err(format!("{label} bank {id} does not exist"));
+                let name = name.ok_or_else(|| "Bank name required".to_string())?;
+                if !self.console.vm.select_asset_bank(bank_kind, &name) {
+                    return Err(format!("{label} bank \"{name}\" does not exist"));
                 }
             }
             "create" => {
-                let ids = self.console.vm.asset_bank_ids(bank_kind);
-                let id = (1..=u8::MAX)
-                    .find(|id| !ids.contains(id))
-                    .ok_or_else(|| format!("No free {label} bank ids"))?;
-                if !self.console.vm.create_asset_bank(bank_kind, id) {
-                    return Err(format!("Could not create {label} bank {id}"));
+                let name = name.ok_or_else(|| "Bank name required".to_string())?;
+                if !caiven_cart::is_valid_bank_name(&name) {
+                    return Err(format!(
+                        "\"{name}\" is not a valid bank name (1-{} letters, digits, _, or -)",
+                        caiven_cart::MAX_BANK_NAME_LEN
+                    ));
+                }
+                if !self.console.vm.create_asset_bank(bank_kind, &name) {
+                    return Err(format!("Could not create {label} bank \"{name}\""));
                 }
                 let meta = self
                     .cart
@@ -1030,7 +1073,7 @@ impl StudioCore {
                     kind: section_kind,
                     ram_base: 0,
                     len: 1,
-                    preserved_data: Some(encode_asset_bank(id, &[])),
+                    preserved_data: Some(encode_asset_bank(&name, &[])),
                 });
                 // The VM already created the companion bank's live data
                 // (`create_asset_bank` cascades); track its section too so
@@ -1041,40 +1084,40 @@ impl StudioCore {
                         kind: section_kind_for_bank(companion_kind),
                         ram_base: 0,
                         len: 1,
-                        preserved_data: Some(encode_asset_bank(id, &[])),
+                        preserved_data: Some(encode_asset_bank(&name, &[])),
                     });
                 }
             }
             "delete" => {
-                let id = id.ok_or_else(|| "Bank id required".to_string())?;
-                if !self.console.vm.remove_asset_bank(bank_kind, id) {
-                    return Err(format!("Cannot delete {label} bank {id}"));
+                let name = name.ok_or_else(|| "Bank name required".to_string())?;
+                if !self.console.vm.remove_asset_bank(bank_kind, &name) {
+                    return Err(format!("Cannot delete {label} bank \"{name}\""));
                 }
                 if let Some(meta) = self.cart.as_mut() {
                     let companion_section = bank_kind.companion().map(section_kind_for_bank);
                     meta.sections.retain(|section| {
                         let tracked_kind =
                             section.kind == section_kind || Some(section.kind) == companion_section;
-                        let matches_id = section
+                        let matches_name = section
                             .preserved_data
                             .as_deref()
                             .and_then(caiven_cart::decode_asset_bank)
-                            .is_some_and(|(bank_id, _)| bank_id == id);
-                        !(tracked_kind && matches_id)
+                            .is_some_and(|(bank_name, _)| bank_name == name);
+                        !(tracked_kind && matches_name)
                     });
                 }
             }
             _ => return Err(format!("Unknown asset bank action: {action}")),
         }
-        let active = self.console.vm.active_asset_bank(bank_kind);
+        let active = self.console.vm.active_asset_bank(bank_kind).to_string();
         let data = self
             .console
             .vm
-            .asset_bank_bytes(bank_kind, active)
+            .asset_bank_bytes(bank_kind, &active)
             .unwrap_or_default();
         Ok(AssetBankPayload {
             kind: kind.to_string(),
-            ids: self.console.vm.asset_bank_ids(bank_kind),
+            names: self.console.vm.asset_bank_names(bank_kind),
             active,
             data,
         })
@@ -2052,10 +2095,10 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         CoreCommand::AssetBank {
             kind,
             action,
-            id,
+            name,
             reply,
         } => {
-            let _ = reply.send(studio.asset_bank(&kind, &action, id));
+            let _ = reply.send(studio.asset_bank(&kind, &action, name));
         }
         CoreCommand::PreparePublish(reply) => {
             let path = cart::temp_cav_path();
@@ -2468,13 +2511,13 @@ fn studio_asset_index(state: State<'_, StudioBridge>) -> Result<asset_index::Ass
 fn studio_asset_bank(
     kind: String,
     action: String,
-    id: Option<u8>,
+    name: Option<String>,
     state: State<'_, StudioBridge>,
 ) -> Result<AssetBankPayload, String> {
     state.request(|reply| CoreCommand::AssetBank {
         kind,
         action,
-        id,
+        name,
         reply,
     })
 }
@@ -2765,6 +2808,7 @@ mod tests {
         Breakpoint, CoreCommand, RunState, StudioCore, debug_path, handle_command,
         normalized_module_path, parse_hex, save_data_path, trim_output, valid_watch_expression,
     };
+    use caiven_cart::DEFAULT_BANK_NAME;
     use caiven_vm::AssetBankKind;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
@@ -2851,8 +2895,8 @@ mod tests {
         let sprite_bank = studio
             .console
             .vm
-            .asset_bank_bytes(AssetBankKind::Sprites, 0)
-            .expect("sprite bank 0");
+            .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+            .expect("default sprite bank");
         assert!(sprite_bank.iter().any(|&pixel| pixel != 0));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -3150,7 +3194,7 @@ mod tests {
         let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
             kind: "not-a-kind".to_string(),
             action: "read".to_string(),
-            id: None,
+            name: None,
             reply,
         });
         assert!(result.is_err());
@@ -3162,7 +3206,7 @@ mod tests {
         let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
             kind: "sprites".to_string(),
             action: "not-an-action".to_string(),
-            id: None,
+            name: None,
             reply,
         });
         assert!(result.is_err());
@@ -3174,7 +3218,7 @@ mod tests {
         let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
             kind: "sprites".to_string(),
             action: "select".to_string(),
-            id: None,
+            name: None,
             reply,
         });
         assert!(result.is_err());
@@ -3194,7 +3238,7 @@ mod tests {
         let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
             kind: "sprites".to_string(),
             action: "create".to_string(),
-            id: None,
+            name: Some("forest".to_string()),
             reply,
         });
         assert!(result.is_err(), "no cart open, so create should fail");
@@ -3202,8 +3246,8 @@ mod tests {
             studio
                 .console
                 .vm
-                .asset_bank_ids(AssetBankKind::Sprites)
-                .contains(&1),
+                .asset_bank_names(AssetBankKind::Sprites)
+                .contains(&"forest".to_string()),
             "known bug: the VM bank is created before the cart-open check"
         );
     }

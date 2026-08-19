@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use caiven_cart::{
-    CartHeader, CartSection, SectionKind, decode_asset_bank, encode_asset_bank,
+    CartHeader, CartSection, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, encode_asset_bank,
     encode_collision_types,
 };
 use caiven_vm::{AssetBankKind, Vm};
@@ -41,47 +41,51 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
                 return (s.kind, encode_collision_types(vm.collision_types()));
             }
             let bank = match s.kind {
-                SectionKind::SpriteSheet => Some((AssetBankKind::Sprites, 0)),
-                SectionKind::Map => Some((AssetBankKind::Map, 0)),
-                SectionKind::Collision => Some((AssetBankKind::Collision, 0)),
+                SectionKind::SpriteSheet => {
+                    Some((AssetBankKind::Sprites, DEFAULT_BANK_NAME.to_string()))
+                }
+                SectionKind::Map => Some((AssetBankKind::Map, DEFAULT_BANK_NAME.to_string())),
+                SectionKind::Collision => {
+                    Some((AssetBankKind::Collision, DEFAULT_BANK_NAME.to_string()))
+                }
                 SectionKind::CollisionBank => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Collision, id)),
+                    .map(|(name, _)| (AssetBankKind::Collision, name.to_string())),
                 SectionKind::SpriteBank => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Sprites, id)),
+                    .map(|(name, _)| (AssetBankKind::Sprites, name.to_string())),
                 SectionKind::MapBank => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Map, id)),
+                    .map(|(name, _)| (AssetBankKind::Map, name.to_string())),
                 SectionKind::PaletteBank => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Palette, id)),
+                    .map(|(name, _)| (AssetBankKind::Palette, name.to_string())),
                 SectionKind::SfxBanks => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Sfx, id)),
+                    .map(|(name, _)| (AssetBankKind::Sfx, name.to_string())),
                 SectionKind::MusicBanks => s
                     .preserved_data
                     .as_deref()
                     .and_then(decode_asset_bank)
-                    .map(|(id, _)| (AssetBankKind::Music, id)),
+                    .map(|(name, _)| (AssetBankKind::Music, name.to_string())),
                 _ => None,
             };
-            let bytes = if let Some((kind, id)) = bank {
-                let data = vm.asset_bank_bytes(kind, id).unwrap_or_default();
-                if id == 0 {
+            let bytes = if let Some((kind, name)) = bank {
+                let data = vm.asset_bank_bytes(kind, &name).unwrap_or_default();
+                if name == DEFAULT_BANK_NAME {
                     data
                 } else {
-                    encode_asset_bank(id, &data)
+                    encode_asset_bank(&name, &data)
                 }
             } else {
                 match &s.preserved_data {

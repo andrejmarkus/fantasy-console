@@ -4,6 +4,7 @@
 use super::SourceFile;
 use crate::app::cart_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
+use caiven_cart::DEFAULT_BANK_NAME;
 use caiven_cart::SectionKind;
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
@@ -354,11 +355,11 @@ pub fn apply_sections(vm: &mut Vm, sections: &[(SectionKind, Vec<u8>)]) {
     for (kind, data) in sections {
         match kind {
             SectionKind::SpriteSheet => {
-                vm.replace_asset_bank(AssetBankKind::Sprites, 0, data);
+                vm.replace_asset_bank(AssetBankKind::Sprites, DEFAULT_BANK_NAME, data);
                 continue;
             }
             SectionKind::Map => {
-                vm.replace_asset_bank(AssetBankKind::Map, 0, data);
+                vm.replace_asset_bank(AssetBankKind::Map, DEFAULT_BANK_NAME, data);
                 continue;
             }
             _ => {}

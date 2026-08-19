@@ -109,19 +109,58 @@ impl SectionKind {
     }
 }
 
-/// Encodes an additional asset bank section. Bank 0 uses legacy
-/// `SpriteSheet`/`Map` sections and must not use this wrapper.
-pub fn encode_asset_bank(id: u8, data: &[u8]) -> Vec<u8> {
-    let mut encoded = Vec::with_capacity(data.len() + 1);
-    encoded.push(id);
+/// Longest name a bank may have. Keeps section overhead small and the
+/// `u8` length prefix always sufficient.
+pub const MAX_BANK_NAME_LEN: usize = 31;
+
+/// Reserved name of the bank that auto-loads at boot. Never appears in an
+/// encoded section — the default bank's data travels in the legacy
+/// unwrapped `SpriteSheet`/`Map`/... sections — but is the name `Vm`
+/// reports for it, so callers have one string to compare against instead
+/// of a separate "is this the default" flag.
+pub const DEFAULT_BANK_NAME: &str = "default";
+
+/// True for names a bank may be created or looked up with: 1-31 ASCII
+/// letters, digits, `_`, or `-`. This charset is also what keeps
+/// name-derived project filenames (`sprites_<name>.png`) safe — it cannot
+/// contain `.`, `/`, `\`, or any other path-traversal character, so no
+/// separate filename sanitisation step is needed.
+pub fn is_valid_bank_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_BANK_NAME_LEN
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Encodes an additional asset bank section. The default bank uses legacy
+/// `SpriteSheet`/`Map`/... sections and must not use this wrapper. Panics
+/// if `name` fails [`is_valid_bank_name`] — callers must validate before
+/// encoding (`Vm`'s create/rename paths always do).
+pub fn encode_asset_bank(name: &str, data: &[u8]) -> Vec<u8> {
+    assert!(is_valid_bank_name(name), "invalid bank name: {name:?}");
+    let mut encoded = Vec::with_capacity(1 + name.len() + data.len());
+    encoded.push(name.len() as u8);
+    encoded.extend_from_slice(name.as_bytes());
     encoded.extend_from_slice(data);
     encoded
 }
 
-/// Decodes bank id and payload from an additional asset bank section.
-pub fn decode_asset_bank(data: &[u8]) -> Option<(u8, &[u8])> {
-    let (&id, payload) = data.split_first()?;
-    (id != 0).then_some((id, payload))
+/// Decodes bank name and payload from an additional asset bank section.
+/// Untrusted input (a `.cav` loaded from disk or Caiven Port): returns
+/// `None` rather than panicking on a truncated section, non-UTF-8 name
+/// bytes, or a name that fails [`is_valid_bank_name`] (which also rules
+/// out path-traversal characters, since the name later becomes part of a
+/// project filename).
+pub fn decode_asset_bank(data: &[u8]) -> Option<(&str, &[u8])> {
+    let (&name_len, rest) = data.split_first()?;
+    let name_len = name_len as usize;
+    if rest.len() < name_len {
+        return None;
+    }
+    let (name_bytes, payload) = rest.split_at(name_len);
+    let name = std::str::from_utf8(name_bytes).ok()?;
+    is_valid_bank_name(name).then_some((name, payload))
 }
 
 /// Encodes the cart-global collision-type table. Layout: `u8` count, then
@@ -174,6 +213,64 @@ pub fn decode_collision_types(data: &[u8]) -> Vec<caiven_core::CollisionType> {
 pub struct CartSection {
     pub kind: SectionKind,
     pub data: Vec<u8>,
+}
+
+#[cfg(test)]
+mod asset_bank_tests {
+    use super::*;
+
+    #[test]
+    fn round_trips_name_and_payload() {
+        let encoded = encode_asset_bank("forest", &[1, 2, 3]);
+        assert_eq!(
+            decode_asset_bank(&encoded),
+            Some(("forest", &[1, 2, 3][..]))
+        );
+    }
+
+    #[test]
+    fn accepts_max_length_and_charset_boundary_names() {
+        let name = "a".repeat(MAX_BANK_NAME_LEN);
+        assert!(is_valid_bank_name(&name));
+        let encoded = encode_asset_bank(&name, &[]);
+        assert_eq!(
+            decode_asset_bank(&encoded).map(|(n, _)| n),
+            Some(name.as_str())
+        );
+        assert!(is_valid_bank_name("A_-9"));
+    }
+
+    #[test]
+    fn rejects_empty_too_long_and_bad_charset_names() {
+        assert!(!is_valid_bank_name(""));
+        assert!(!is_valid_bank_name(&"a".repeat(MAX_BANK_NAME_LEN + 1)));
+        assert!(!is_valid_bank_name("../etc"));
+        assert!(!is_valid_bank_name("a/b"));
+        assert!(!is_valid_bank_name("a.b"));
+        assert!(!is_valid_bank_name("has space"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid bank name")]
+    fn encode_panics_on_invalid_name() {
+        encode_asset_bank("../escape", &[]);
+    }
+
+    #[test]
+    fn decode_rejects_truncated_and_malicious_data_without_panicking() {
+        // Empty input: no length byte at all.
+        assert_eq!(decode_asset_bank(&[]), None);
+        // Length byte claims more name bytes than the section actually has —
+        // this is exactly the shape a truncated or hand-crafted malicious
+        // section would take.
+        assert_eq!(decode_asset_bank(&[10, b'a', b'b']), None);
+        // Name bytes that aren't valid UTF-8.
+        assert_eq!(decode_asset_bank(&[2, 0xff, 0xfe]), None);
+        // Valid UTF-8 but outside the allowed charset (path separator).
+        assert_eq!(decode_asset_bank(&[3, b'a', b'/', b'b']), None);
+        // Zero-length name is never valid, even though it parses cleanly.
+        assert_eq!(decode_asset_bank(&[0, 1, 2, 3]), None);
+    }
 }
 
 #[cfg(test)]

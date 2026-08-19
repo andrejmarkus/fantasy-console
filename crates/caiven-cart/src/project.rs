@@ -10,18 +10,18 @@
 //! my-game/
 //!   caiven.toml
 //!   main.lua
-//!   sprites.png       (__gfx__,   or sprites.hex)
-//!   sprites_1.png     (additional sprite bank 1)
-//!   map.png           (__map__,   or map.hex)
-//!   map_1.png         (additional map bank 1)
-//!   palette.png       (__pal__,   or palette.hex)
-//!   palette_1.png     (additional palette bank 1)
-//!   sfx.hex           (__sfx__)
-//!   sfx_1.hex         (additional SFX bank 1)
-//!   music.hex         (__music__)
-//!   music_1.hex       (additional music bank 1)
-//!   collision.hex     (per-cell collision, companion of map)
-//!   collision_1.hex   (additional collision bank 1, companion of map bank 1)
+//!   sprites.png            (__gfx__,   or sprites.hex)
+//!   sprites_forest.png     (additional sprite bank "forest")
+//!   map.png                (__map__,   or map.hex)
+//!   map_forest.png         (additional map bank "forest")
+//!   palette.png            (__pal__,   or palette.hex)
+//!   palette_night.png      (additional palette bank "night")
+//!   sfx.hex                (__sfx__)
+//!   sfx_boss.hex           (additional SFX bank "boss")
+//!   music.hex              (__music__)
+//!   music_boss.hex         (additional music bank "boss")
+//!   collision.hex          (per-cell collision, companion of map)
+//!   collision_forest.hex   (additional collision bank "forest", companion of map bank "forest")
 //!   collision_types.json  (cart-global collision-type table, if customized)
 //! ```
 //!
@@ -46,7 +46,10 @@ use crate::format::Cart;
 use crate::header::CartHeader;
 use crate::section::{CartSection, SectionKind};
 use crate::text::{decode_hex_block, encode_hex_block, trim_trailing_zeros};
-use crate::{decode_asset_bank, decode_collision_types, encode_asset_bank, encode_collision_types};
+use crate::{
+    decode_asset_bank, decode_collision_types, encode_asset_bank, encode_collision_types,
+    is_valid_bank_name,
+};
 
 const MANIFEST_FILE: &str = "caiven.toml";
 const DEFAULT_ENTRY: &str = "main.lua";
@@ -136,9 +139,10 @@ const SECTION_STEMS: [(SectionKind, &str); 6] = [
     (SectionKind::Collision, "collision"),
 ];
 
-/// Additional-bank section kinds (id != 0): the wrapper `SectionKind` that
-/// carries `encode_asset_bank`-wrapped payload, the base kind used to pick
-/// a PNG/hex codec, and the shared file stem (`{stem}_{id}.png`/`.hex`).
+/// Additional-bank section kinds (name != "default"): the wrapper
+/// `SectionKind` that carries `encode_asset_bank`-wrapped payload, the base
+/// kind used to pick a PNG/hex codec, and the shared file stem
+/// (`{stem}_{name}.png`/`.hex`).
 const BANK_KINDS: [(SectionKind, SectionKind, &str); 6] = [
     (SectionKind::SpriteBank, SectionKind::SpriteSheet, "sprites"),
     (SectionKind::MapBank, SectionKind::Map, "map"),
@@ -337,21 +341,31 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
     }
 
     for (kind, base_kind, stem) in BANK_KINDS {
-        for id in 1..=u8::MAX {
-            let png_path = dir.join(format!("{stem}_{id}.png"));
-            let hex_path = dir.join(format!("{stem}_{id}.hex"));
+        let mut names: Vec<String> = std::fs::read_dir(&dir)?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let file_name = entry.file_name();
+                bank_file_name(&file_name.to_string_lossy(), stem).map(str::to_string)
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+
+        for name in names {
+            let png_path = dir.join(format!("{stem}_{name}.png"));
+            let hex_path = dir.join(format!("{stem}_{name}.hex"));
             let data = if supports_png(base_kind) && png_path.is_file() {
                 let bytes = std::fs::read(&png_path)?;
                 decode_png_section(base_kind, &bytes, &palette).map_err(|message| {
                     CartError::BadPng {
-                        file: format!("{stem}_{id}.png"),
+                        file: format!("{stem}_{name}.png"),
                         message,
                     }
                 })?
             } else if hex_path.is_file() {
                 let text = std::fs::read_to_string(&hex_path)?;
                 decode_hex_block(&text).map_err(|message| CartError::BadHex {
-                    file: format!("{stem}_{id}.hex"),
+                    file: format!("{stem}_{name}.hex"),
                     message,
                 })?
             } else {
@@ -359,7 +373,7 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
             };
             sections.push(CartSection {
                 kind,
-                data: encode_asset_bank(id, trim_trailing_zeros(&data)),
+                data: encode_asset_bank(&name, trim_trailing_zeros(&data)),
             });
         }
     }
@@ -460,24 +474,25 @@ pub fn save_project(
     std::fs::write(dir.join(MANIFEST_FILE), manifest_text)?;
     std::fs::write(dir.join(DEFAULT_ENTRY), lua)?;
 
-    let expected_banks: Vec<(&str, Vec<u8>)> = BANK_KINDS
+    let expected_banks: Vec<(&str, Vec<String>)> = BANK_KINDS
         .iter()
         .map(|(kind, _, stem)| {
-            let ids = sections
+            let names = sections
                 .iter()
                 .filter(|(k, _)| k == kind)
-                .filter_map(|(_, data)| decode_asset_bank(data).map(|(id, _)| id))
+                .filter_map(|(_, data)| decode_asset_bank(data).map(|(name, _)| name.to_string()))
                 .collect();
-            (*stem, ids)
+            (*stem, names)
         })
         .collect();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        let stale = expected_banks
-            .iter()
-            .any(|(stem, ids)| bank_file_id(&name, stem).is_some_and(|id| !ids.contains(&id)));
+        let stale = expected_banks.iter().any(|(stem, names)| {
+            bank_file_name(&name, stem)
+                .is_some_and(|bank_name| !names.iter().any(|n| n == bank_name))
+        });
         if stale {
             std::fs::remove_file(entry.path())?;
         }
@@ -508,11 +523,11 @@ pub fn save_project(
             continue;
         }
         if let Some((_, base_kind, stem)) = BANK_KINDS.iter().find(|(k, _, _)| k == kind) {
-            let Some((id, payload)) = decode_asset_bank(data) else {
+            let Some((name, payload)) = decode_asset_bank(data) else {
                 continue;
             };
-            let png_path = dir.join(format!("{stem}_{id}.png"));
-            let hex_path = dir.join(format!("{stem}_{id}.hex"));
+            let png_path = dir.join(format!("{stem}_{name}.png"));
+            let hex_path = dir.join(format!("{stem}_{name}.hex"));
             let write_png = supports_png(*base_kind) && (png_path.is_file() || !hex_path.is_file());
             if write_png {
                 let palette = sections
@@ -523,7 +538,7 @@ pub fn save_project(
                 let bytes =
                     encode_png_section(*base_kind, payload, palette).map_err(|message| {
                         CartError::BadPng {
-                            file: format!("{stem}_{id}.png"),
+                            file: format!("{stem}_{name}.png"),
                             message,
                         }
                     })?;
@@ -573,14 +588,18 @@ pub fn save_project(
     Ok(())
 }
 
-fn bank_file_id(name: &str, stem: &str) -> Option<u8> {
-    let rest = name.strip_prefix(&format!("{stem}_"))?;
-    let id = rest
+/// Extracts and validates a bank name from a project filename
+/// (`{stem}_{name}.png`/`.hex`). Validating through [`is_valid_bank_name`]
+/// here — the same gate the binary `.cav` decoder uses — is what keeps a
+/// hostile or malformed filename from ever reaching a path join: the
+/// charset it enforces excludes `.`, `/`, and `\`, so a name that passes
+/// can't escape `dir` when it's later joined back into a path.
+fn bank_file_name<'a>(file_name: &'a str, stem: &str) -> Option<&'a str> {
+    let rest = file_name.strip_prefix(&format!("{stem}_"))?;
+    let name = rest
         .strip_suffix(".png")
-        .or_else(|| rest.strip_suffix(".hex"))?
-        .parse::<u8>()
-        .ok()?;
-    (id != 0).then_some(id)
+        .or_else(|| rest.strip_suffix(".hex"))?;
+    is_valid_bank_name(name).then_some(name)
 }
 
 fn decode_png_section(kind: SectionKind, bytes: &[u8], palette: &[u8]) -> Result<Vec<u8>, String> {
@@ -1064,7 +1083,7 @@ mod tests {
     fn additional_asset_banks_roundtrip_and_delete_cleanly() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Banks", "");
-        let bank = encode_asset_bank(1, &[3, 4, 0]);
+        let bank = encode_asset_bank("forest", &[3, 4, 0]);
         save_project(
             dir.path(),
             &header,
@@ -1073,7 +1092,7 @@ mod tests {
             &[(SectionKind::SpriteBank, bank)],
         )
         .unwrap();
-        assert!(dir.path().join("sprites_1.png").is_file());
+        assert!(dir.path().join("sprites_forest.png").is_file());
 
         let cart = load_project(dir.path()).unwrap();
         let loaded = cart
@@ -1081,23 +1100,23 @@ mod tests {
             .iter()
             .find(|section| section.kind == SectionKind::SpriteBank)
             .unwrap();
-        let (id, pixels) = decode_asset_bank(&loaded.data).unwrap();
-        assert_eq!(id, 1);
+        let (name, pixels) = decode_asset_bank(&loaded.data).unwrap();
+        assert_eq!(name, "forest");
         // Trailing zero trimmed on the way back to a binary section (the
         // VM zero-pads on load, so this is lossless) — [3, 4, 0] round
         // trips as [3, 4].
         assert_eq!(pixels, &[3, 4]);
 
         save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
-        assert!(!dir.path().join("sprites_1.png").exists());
+        assert!(!dir.path().join("sprites_forest.png").exists());
     }
 
     #[test]
     fn palette_and_sfx_additional_banks_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Banks", "");
-        let palette_bank = encode_asset_bank(1, &[10, 20, 30]);
-        let sfx_bank = encode_asset_bank(1, &[5, 6, 7, 8]);
+        let palette_bank = encode_asset_bank("night", &[10, 20, 30]);
+        let sfx_bank = encode_asset_bank("night", &[5, 6, 7, 8]);
         save_project(
             dir.path(),
             &header,
@@ -1110,9 +1129,9 @@ mod tests {
         )
         .unwrap();
         // Palette supports PNG; SFX is hex-only.
-        assert!(dir.path().join("palette_1.png").is_file());
-        assert!(dir.path().join("sfx_1.hex").is_file());
-        assert!(!dir.path().join("sfx_1.png").exists());
+        assert!(dir.path().join("palette_night.png").is_file());
+        assert!(dir.path().join("sfx_night.hex").is_file());
+        assert!(!dir.path().join("sfx_night.png").exists());
 
         let cart = load_project(dir.path()).unwrap();
         let palette = cart
@@ -1120,8 +1139,8 @@ mod tests {
             .iter()
             .find(|s| s.kind == SectionKind::PaletteBank)
             .unwrap();
-        let (id, rgb) = decode_asset_bank(&palette.data).unwrap();
-        assert_eq!(id, 1);
+        let (name, rgb) = decode_asset_bank(&palette.data).unwrap();
+        assert_eq!(name, "night");
         assert_eq!(&rgb[..3], &[10, 20, 30]);
 
         let sfx = cart
@@ -1129,20 +1148,20 @@ mod tests {
             .iter()
             .find(|s| s.kind == SectionKind::SfxBanks)
             .unwrap();
-        let (id, bytes) = decode_asset_bank(&sfx.data).unwrap();
-        assert_eq!(id, 1);
+        let (name, bytes) = decode_asset_bank(&sfx.data).unwrap();
+        assert_eq!(name, "night");
         assert_eq!(&bytes[..4], &[5, 6, 7, 8]);
 
         save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
-        assert!(!dir.path().join("palette_1.png").exists());
-        assert!(!dir.path().join("sfx_1.hex").exists());
+        assert!(!dir.path().join("palette_night.png").exists());
+        assert!(!dir.path().join("sfx_night.hex").exists());
     }
 
     #[test]
     fn collision_additional_bank_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Banks", "");
-        let collision_bank = encode_asset_bank(1, &[0, 1, 2, 1]);
+        let collision_bank = encode_asset_bank("forest", &[0, 1, 2, 1]);
         save_project(
             dir.path(),
             &header,
@@ -1152,8 +1171,8 @@ mod tests {
         )
         .unwrap();
         // Collision is index data, not an image: hex-only, like sprite flags.
-        assert!(dir.path().join("collision_1.hex").is_file());
-        assert!(!dir.path().join("collision_1.png").exists());
+        assert!(dir.path().join("collision_forest.hex").is_file());
+        assert!(!dir.path().join("collision_forest.png").exists());
 
         let cart = load_project(dir.path()).unwrap();
         let collision = cart
@@ -1161,12 +1180,12 @@ mod tests {
             .iter()
             .find(|s| s.kind == SectionKind::CollisionBank)
             .unwrap();
-        let (id, cells) = decode_asset_bank(&collision.data).unwrap();
-        assert_eq!(id, 1);
+        let (name, cells) = decode_asset_bank(&collision.data).unwrap();
+        assert_eq!(name, "forest");
         assert_eq!(&cells[..4], &[0, 1, 2, 1]);
 
         save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
-        assert!(!dir.path().join("collision_1.hex").exists());
+        assert!(!dir.path().join("collision_forest.hex").exists());
     }
 
     #[test]
@@ -1180,14 +1199,38 @@ mod tests {
             &[],
             &[(
                 SectionKind::MapBank,
-                encode_asset_bank(2, &vec![0; caiven_core::memory::MAP_LEN]),
+                encode_asset_bank("cave", &vec![0; caiven_core::memory::MAP_LEN]),
             )],
         )
         .unwrap();
         let cart = load_project(dir.path()).unwrap();
         assert!(cart.sections.iter().any(|section| {
             section.kind == SectionKind::MapBank
-                && decode_asset_bank(&section.data).is_some_and(|(id, _)| id == 2)
+                && decode_asset_bank(&section.data).is_some_and(|(name, _)| name == "cave")
         }));
+    }
+
+    #[test]
+    fn a_file_with_an_invalid_bank_name_is_ignored_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Banks", "");
+        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        // Neither a path-traversal attempt nor a name over the length cap
+        // is a valid bank name, so a hand-placed file using either should
+        // be skipped rather than smuggled into a section.
+        std::fs::write(dir.path().join("sprites_..%2Fescape.hex"), "00").unwrap();
+        std::fs::write(
+            dir.path().join(format!("sprites_{}.hex", "a".repeat(64))),
+            "00",
+        )
+        .unwrap();
+
+        let cart = load_project(dir.path()).unwrap();
+        assert!(
+            !cart
+                .sections
+                .iter()
+                .any(|section| section.kind == SectionKind::SpriteBank)
+        );
     }
 }

@@ -143,20 +143,20 @@ const fallback: StudioBootstrap = {
   palette: defaultPalette,
   spriteSheet: [...defaultSprite, ...Array(255 * 64).fill(0)],
   map: Array(MAP_LEN).fill(0),
-  spriteBanks: [0],
-  mapBanks: [0],
-  activeSpriteBank: 0,
-  activeMapBank: 0,
+  spriteBanks: ['default'],
+  mapBanks: ['default'],
+  activeSpriteBank: 'default',
+  activeMapBank: 'default',
   collision: Array(COLLISION_LEN).fill(0),
   collisionTypes: structuredClone(defaultCollisionTypes),
   sfx: Array(SFX_BANK_LEN).fill(0),
   music: Array(MUSIC_BANK_LEN).fill(0),
-  paletteBanks: [0],
-  activePaletteBank: 0,
-  sfxBanks: [0],
-  activeSfxBank: 0,
-  musicBanks: [0],
-  activeMusicBank: 0,
+  paletteBanks: ['default'],
+  activePaletteBank: 'default',
+  sfxBanks: ['default'],
+  activeSfxBank: 'default',
+  musicBanks: ['default'],
+  activeMusicBank: 'default',
   ram: Array(RAM_SIZE).fill(0),
   globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
   watches: [],
@@ -402,15 +402,15 @@ export async function writeCollisionTypes(types: CollisionType[]): Promise<void>
 }
 
 export async function assetBank(
-  kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'read' | 'select' | 'create' | 'delete', id?: number,
+  kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'read' | 'select' | 'create' | 'delete', name?: string,
 ): Promise<AssetBankState> {
-  if (isTauri()) return invoke<AssetBankState>('studio_asset_bank', { kind, action, id: id ?? null });
+  if (isTauri()) return invoke<AssetBankState>('studio_asset_bank', { kind, action, name: name ?? null });
   const byKind = {
-    sprites: { ids: fallback.spriteBanks, active: fallback.activeSpriteBank, data: fallback.spriteSheet },
-    map: { ids: fallback.mapBanks, active: fallback.activeMapBank, data: fallback.map },
-    palette: { ids: fallback.paletteBanks, active: fallback.activePaletteBank, data: paletteToBytes(fallback.palette) },
-    sfx: { ids: fallback.sfxBanks, active: fallback.activeSfxBank, data: fallback.sfx },
-    music: { ids: fallback.musicBanks, active: fallback.activeMusicBank, data: fallback.music },
+    sprites: { names: fallback.spriteBanks, active: fallback.activeSpriteBank, data: fallback.spriteSheet },
+    map: { names: fallback.mapBanks, active: fallback.activeMapBank, data: fallback.map },
+    palette: { names: fallback.paletteBanks, active: fallback.activePaletteBank, data: paletteToBytes(fallback.palette) },
+    sfx: { names: fallback.sfxBanks, active: fallback.activeSfxBank, data: fallback.sfx },
+    music: { names: fallback.musicBanks, active: fallback.activeMusicBank, data: fallback.music },
   } as const;
   return { kind, ...byKind[kind] };
 }

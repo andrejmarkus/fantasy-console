@@ -27,7 +27,9 @@ use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
 use crate::vm::audio::{SFX_VOICE_COUNT, Sound};
-use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
+use caiven_cart::{
+    CartSection, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, is_valid_bank_name,
+};
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
     PALETTE_RAM_BASE, PALETTE_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_SHEET_LEN,
@@ -67,8 +69,8 @@ impl AssetBankKind {
 }
 
 struct AssetBanks {
-    banks: BTreeMap<AssetBankKind, BTreeMap<u8, Vec<u8>>>,
-    active: BTreeMap<AssetBankKind, u8>,
+    banks: BTreeMap<AssetBankKind, BTreeMap<String, Vec<u8>>>,
+    active: BTreeMap<AssetBankKind, String>,
 }
 
 impl AssetBanks {
@@ -86,8 +88,11 @@ impl AssetBanks {
         let mut active = BTreeMap::new();
         for kind in Self::KINDS {
             let (_, len) = Self::region(kind);
-            banks.insert(kind, BTreeMap::from([(0, vec![0; len])]));
-            active.insert(kind, 0);
+            banks.insert(
+                kind,
+                BTreeMap::from([(DEFAULT_BANK_NAME.to_string(), vec![0; len])]),
+            );
+            active.insert(kind, DEFAULT_BANK_NAME.to_string());
         }
         Self { banks, active }
     }
@@ -103,27 +108,26 @@ impl AssetBanks {
         }
     }
 
-    fn banks(&self, kind: AssetBankKind) -> &BTreeMap<u8, Vec<u8>> {
+    fn banks(&self, kind: AssetBankKind) -> &BTreeMap<String, Vec<u8>> {
         self.banks
             .get(&kind)
             .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
-    fn banks_mut(&mut self, kind: AssetBankKind) -> &mut BTreeMap<u8, Vec<u8>> {
+    fn banks_mut(&mut self, kind: AssetBankKind) -> &mut BTreeMap<String, Vec<u8>> {
         self.banks
             .get_mut(&kind)
             .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
-    fn active(&self, kind: AssetBankKind) -> u8 {
-        *self
-            .active
+    fn active(&self, kind: AssetBankKind) -> &str {
+        self.active
             .get(&kind)
             .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
-    fn set_active(&mut self, kind: AssetBankKind, id: u8) {
-        self.active.insert(kind, id);
+    fn set_active(&mut self, kind: AssetBankKind, name: &str) {
+        self.active.insert(kind, name.to_string());
     }
 
     fn normalized(data: &[u8], len: usize) -> Vec<u8> {
@@ -135,18 +139,18 @@ impl AssetBanks {
 
     fn sync(&mut self, kind: AssetBankKind, memory: &Memory) {
         let (base, len) = Self::region(kind);
-        let active = self.active(kind);
+        let active = self.active(kind).to_string();
         let data: Vec<u8> = (0..len)
             .map(|offset| memory.read(base + offset).unwrap_or(0))
             .collect();
         self.banks_mut(kind).insert(active, data);
     }
 
-    fn select(&mut self, kind: AssetBankKind, id: u8, memory: &mut Memory) -> bool {
-        if self.active(kind) == id {
-            return self.banks(kind).contains_key(&id);
+    fn select(&mut self, kind: AssetBankKind, name: &str, memory: &mut Memory) -> bool {
+        if self.active(kind) == name {
+            return self.banks(kind).contains_key(name);
         }
-        let Some(data) = self.banks(kind).get(&id).cloned() else {
+        let Some(data) = self.banks(kind).get(name).cloned() else {
             return false;
         };
         self.sync(kind, memory);
@@ -154,26 +158,32 @@ impl AssetBanks {
         for (offset, byte) in data.into_iter().enumerate() {
             let _ = memory.write(base + offset, byte);
         }
-        self.set_active(kind, id);
+        self.set_active(kind, name);
         true
     }
 
-    /// Selects `kind`'s bank `id`, cascading to its companion (if any) at
-    /// the same id — creating a fresh zero-filled companion bank first if
+    /// Selects `kind`'s bank `name`, cascading to its companion (if any) at
+    /// the same name — creating a fresh zero-filled companion bank first if
     /// one doesn't exist yet, so a companion can never lag behind on stale
     /// data from whatever bank was previously active (e.g. switching to a
     /// Map bank that has no matching Collision bank must not leave the old
     /// bank's collision governing the new map). Shared by
     /// `Vm::{select,create}_asset_bank` and the Lua `load_*_bank` builtins
     /// (`lua_exec.rs`) so the three call paths can't drift on this.
-    fn select_with_companion(&mut self, kind: AssetBankKind, id: u8, memory: &mut Memory) -> bool {
-        let selected = self.select(kind, id, memory);
+    fn select_with_companion(
+        &mut self,
+        kind: AssetBankKind,
+        name: &str,
+        memory: &mut Memory,
+    ) -> bool {
+        let selected = self.select(kind, name, memory);
         if selected && let Some(companion) = kind.companion() {
-            if !self.banks(companion).contains_key(&id) {
+            if !self.banks(companion).contains_key(name) {
                 let (_, len) = Self::region(companion);
-                self.banks_mut(companion).insert(id, vec![0; len]);
+                self.banks_mut(companion)
+                    .insert(name.to_string(), vec![0; len]);
             }
-            self.select(companion, id, memory);
+            self.select(companion, name, memory);
         }
         selected
     }
@@ -452,44 +462,49 @@ impl Vm {
         for section in sections {
             let ram_base = match section.kind {
                 SectionKind::SpriteSheet => {
-                    self.asset_banks
-                        .banks_mut(AssetBankKind::Sprites)
-                        .insert(0, AssetBanks::normalized(&section.data, SPRITE_SHEET_LEN));
+                    self.asset_banks.banks_mut(AssetBankKind::Sprites).insert(
+                        DEFAULT_BANK_NAME.to_string(),
+                        AssetBanks::normalized(&section.data, SPRITE_SHEET_LEN),
+                    );
                     continue;
                 }
                 SectionKind::Map => {
-                    self.asset_banks
-                        .banks_mut(AssetBankKind::Map)
-                        .insert(0, AssetBanks::normalized(&section.data, MAP_LEN));
+                    self.asset_banks.banks_mut(AssetBankKind::Map).insert(
+                        DEFAULT_BANK_NAME.to_string(),
+                        AssetBanks::normalized(&section.data, MAP_LEN),
+                    );
                     continue;
                 }
                 SectionKind::SpriteBank => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
-                        self.asset_banks
-                            .banks_mut(AssetBankKind::Sprites)
-                            .insert(id, AssetBanks::normalized(data, SPRITE_SHEET_LEN));
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks.banks_mut(AssetBankKind::Sprites).insert(
+                            name.to_string(),
+                            AssetBanks::normalized(data, SPRITE_SHEET_LEN),
+                        );
                     }
                     continue;
                 }
                 SectionKind::MapBank => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
                         self.asset_banks
                             .banks_mut(AssetBankKind::Map)
-                            .insert(id, AssetBanks::normalized(data, MAP_LEN));
+                            .insert(name.to_string(), AssetBanks::normalized(data, MAP_LEN));
                     }
                     continue;
                 }
                 SectionKind::Collision => {
-                    self.asset_banks
-                        .banks_mut(AssetBankKind::Collision)
-                        .insert(0, AssetBanks::normalized(&section.data, COLLISION_LEN));
+                    self.asset_banks.banks_mut(AssetBankKind::Collision).insert(
+                        DEFAULT_BANK_NAME.to_string(),
+                        AssetBanks::normalized(&section.data, COLLISION_LEN),
+                    );
                     continue;
                 }
                 SectionKind::CollisionBank => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
-                        self.asset_banks
-                            .banks_mut(AssetBankKind::Collision)
-                            .insert(id, AssetBanks::normalized(data, COLLISION_LEN));
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks.banks_mut(AssetBankKind::Collision).insert(
+                            name.to_string(),
+                            AssetBanks::normalized(data, COLLISION_LEN),
+                        );
                     }
                     continue;
                 }
@@ -497,30 +512,33 @@ impl Vm {
                     self.collision_types = caiven_cart::decode_collision_types(&section.data);
                     continue;
                 }
-                // Additional (id != 0) banks for the kinds whose bank-0 data
-                // still loads straight to RAM below. Bank 0 self-heals into
-                // `asset_banks` on first `select`/`sync`; see `AssetBanks::sync`.
+                // Additional (name != default) banks for the kinds whose
+                // default-bank data still loads straight to RAM below. The
+                // default bank self-heals into `asset_banks` on first
+                // `select`/`sync`; see `AssetBanks::sync`.
                 SectionKind::PaletteBank => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
-                        self.asset_banks
-                            .banks_mut(AssetBankKind::Palette)
-                            .insert(id, AssetBanks::normalized(data, PALETTE_SIZE * 3));
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks.banks_mut(AssetBankKind::Palette).insert(
+                            name.to_string(),
+                            AssetBanks::normalized(data, PALETTE_SIZE * 3),
+                        );
                     }
                     continue;
                 }
                 SectionKind::SfxBanks => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
                         self.asset_banks
                             .banks_mut(AssetBankKind::Sfx)
-                            .insert(id, AssetBanks::normalized(data, SFX_BANK_LEN));
+                            .insert(name.to_string(), AssetBanks::normalized(data, SFX_BANK_LEN));
                     }
                     continue;
                 }
                 SectionKind::MusicBanks => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
-                        self.asset_banks
-                            .banks_mut(AssetBankKind::Music)
-                            .insert(id, AssetBanks::normalized(data, MUSIC_BANK_LEN));
+                    if let Some((name, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks.banks_mut(AssetBankKind::Music).insert(
+                            name.to_string(),
+                            AssetBanks::normalized(data, MUSIC_BANK_LEN),
+                        );
                     }
                     continue;
                 }
@@ -544,14 +562,14 @@ impl Vm {
             AssetBankKind::Map,
             AssetBankKind::Collision,
         ] {
-            let Some(data) = self.asset_banks.banks(kind).get(&0).cloned() else {
+            let Some(data) = self.asset_banks.banks(kind).get(DEFAULT_BANK_NAME).cloned() else {
                 continue;
             };
             let (base, _) = AssetBanks::region(kind);
             for (offset, byte) in data.into_iter().enumerate() {
                 let _ = self.memory.write(base + offset, byte);
             }
-            self.asset_banks.set_active(kind, 0);
+            self.asset_banks.set_active(kind, DEFAULT_BANK_NAME);
         }
         sections
             .iter()
@@ -559,21 +577,21 @@ impl Vm {
             .map(|s| String::from_utf8_lossy(&s.data).into_owned())
     }
 
-    pub fn asset_bank_ids(&self, kind: AssetBankKind) -> Vec<u8> {
-        self.asset_banks.banks(kind).keys().copied().collect()
+    pub fn asset_bank_names(&self, kind: AssetBankKind) -> Vec<String> {
+        self.asset_banks.banks(kind).keys().cloned().collect()
     }
 
-    pub fn active_asset_bank(&self, kind: AssetBankKind) -> u8 {
+    pub fn active_asset_bank(&self, kind: AssetBankKind) -> &str {
         self.asset_banks.active(kind)
     }
 
-    /// Selects bank `id` for `kind`. If `kind` has a companion (see
-    /// `AssetBankKind::companion`), the companion follows to the same id —
+    /// Selects bank `name` for `kind`. If `kind` has a companion (see
+    /// `AssetBankKind::companion`), the companion follows to the same name —
     /// e.g. selecting a Map bank also selects its Collision bank.
-    pub fn select_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
+    pub fn select_asset_bank(&mut self, kind: AssetBankKind, name: &str) -> bool {
         let selected = self
             .asset_banks
-            .select_with_companion(kind, id, &mut self.memory);
+            .select_with_companion(kind, name, &mut self.memory);
         if selected && kind == AssetBankKind::Palette {
             self.sync_palette_from_ram();
         }
@@ -593,29 +611,34 @@ impl Vm {
         self.set_palette_from_bytes(&bytes);
     }
 
-    /// Creates and selects bank `id` for `kind`. A companion bank (if any)
-    /// is created and selected alongside it at the same id, so the two stay
-    /// in lockstep for the rest of their lifetime.
-    pub fn create_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
-        if id == 0 || self.asset_banks.banks(kind).contains_key(&id) {
+    /// Creates and selects bank `name` for `kind`. `name` must satisfy
+    /// [`is_valid_bank_name`] and not already exist. A companion bank (if
+    /// any) is created and selected alongside it at the same name, so the
+    /// two stay in lockstep for the rest of their lifetime.
+    pub fn create_asset_bank(&mut self, kind: AssetBankKind, name: &str) -> bool {
+        if !is_valid_bank_name(name) || self.asset_banks.banks(kind).contains_key(name) {
             return false;
         }
         let (_, len) = AssetBanks::region(kind);
-        self.asset_banks.banks_mut(kind).insert(id, vec![0; len]);
+        self.asset_banks
+            .banks_mut(kind)
+            .insert(name.to_string(), vec![0; len]);
         let created = self
             .asset_banks
-            .select_with_companion(kind, id, &mut self.memory);
+            .select_with_companion(kind, name, &mut self.memory);
         if created && kind == AssetBankKind::Palette {
             self.sync_palette_from_ram();
         }
         created
     }
 
-    pub fn replace_asset_bank(&mut self, kind: AssetBankKind, id: u8, data: &[u8]) {
+    pub fn replace_asset_bank(&mut self, kind: AssetBankKind, name: &str, data: &[u8]) {
         let (_, len) = AssetBanks::region(kind);
         let data = AssetBanks::normalized(data, len);
-        self.asset_banks.banks_mut(kind).insert(id, data.clone());
-        if self.asset_banks.active(kind) == id {
+        self.asset_banks
+            .banks_mut(kind)
+            .insert(name.to_string(), data.clone());
+        if self.asset_banks.active(kind) == name {
             let (base, _) = AssetBanks::region(kind);
             for (offset, byte) in data.into_iter().enumerate() {
                 let _ = self.memory.write(base + offset, byte);
@@ -626,31 +649,37 @@ impl Vm {
         }
     }
 
-    /// Removes bank `id` for `kind`, falling back to bank 0 if it was
-    /// active. A companion bank (if any) is removed alongside it.
-    pub fn remove_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
-        if id == 0 || !self.asset_banks.banks(kind).contains_key(&id) {
+    /// Removes bank `name` for `kind`, falling back to the default bank if
+    /// it was active. A companion bank (if any) is removed alongside it.
+    /// The default bank itself can never be removed.
+    pub fn remove_asset_bank(&mut self, kind: AssetBankKind, name: &str) -> bool {
+        if name == DEFAULT_BANK_NAME || !self.asset_banks.banks(kind).contains_key(name) {
             return false;
         }
-        if self.asset_banks.active(kind) == id {
-            let _ = self.asset_banks.select(kind, 0, &mut self.memory);
+        if self.asset_banks.active(kind) == name {
+            let _ = self
+                .asset_banks
+                .select(kind, DEFAULT_BANK_NAME, &mut self.memory);
             if kind == AssetBankKind::Palette {
                 self.sync_palette_from_ram();
             }
         }
-        let removed = self.asset_banks.banks_mut(kind).remove(&id).is_some();
+        let removed = self.asset_banks.banks_mut(kind).remove(name).is_some();
         if removed && let Some(companion) = kind.companion() {
-            if self.asset_banks.active(companion) == id {
-                let _ = self.asset_banks.select(companion, 0, &mut self.memory);
+            if self.asset_banks.active(companion) == name {
+                let _ = self
+                    .asset_banks
+                    .select(companion, DEFAULT_BANK_NAME, &mut self.memory);
             }
-            self.asset_banks.banks_mut(companion).remove(&id);
+            self.asset_banks.banks_mut(companion).remove(name);
         }
         removed
     }
 
-    /// Returns current bank bytes, including unswitched RAM edits for active bank.
-    pub fn asset_bank_bytes(&self, kind: AssetBankKind, id: u8) -> Option<Vec<u8>> {
-        if self.asset_banks.active(kind) == id {
+    /// Returns current bank bytes, including unswitched RAM edits for the
+    /// active bank.
+    pub fn asset_bank_bytes(&self, kind: AssetBankKind, name: &str) -> Option<Vec<u8>> {
+        if self.asset_banks.active(kind) == name {
             let (base, len) = AssetBanks::region(kind);
             Some(
                 (0..len)
@@ -658,7 +687,7 @@ impl Vm {
                     .collect(),
             )
         } else {
-            self.asset_banks.banks(kind).get(&id).cloned()
+            self.asset_banks.banks(kind).get(name).cloned()
         }
     }
 
@@ -822,22 +851,25 @@ mod asset_bank_tests {
             },
             CartSection {
                 kind: SectionKind::SpriteBank,
-                data: encode_asset_bank(2, &vec![7; SPRITE_SHEET_LEN]),
+                data: encode_asset_bank("forest", &vec![7; SPRITE_SHEET_LEN]),
             },
         ]);
 
-        assert_eq!(vm.asset_bank_ids(AssetBankKind::Sprites), vec![0, 2]);
+        assert_eq!(
+            vm.asset_bank_names(AssetBankKind::Sprites),
+            vec![DEFAULT_BANK_NAME.to_string(), "forest".to_string()]
+        );
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 1);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, "forest"));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 7);
         vm.poke_memory(SPRITE_SHEET_RAM_BASE, 9);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, "forest"));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 9);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 0));
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, DEFAULT_BANK_NAME));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 1);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, "forest"));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 9);
-        assert!(!vm.select_asset_bank(AssetBankKind::Sprites, 3));
+        assert!(!vm.select_asset_bank(AssetBankKind::Sprites, "missing"));
     }
 
     #[test]
@@ -867,16 +899,16 @@ mod asset_bank_tests {
         let mut vm = Vm::new(VmConfig::default());
         vm.load_cart_sections(&[CartSection {
             kind: SectionKind::MapBank,
-            data: encode_asset_bank(4, &vec![6; MAP_LEN]),
+            data: encode_asset_bank("cave", &vec![6; MAP_LEN]),
         }]);
         vm.load_lua_source(
-            "function _init() switched = load_map_bank(4) end\nfunction _update() end",
+            "function _init() switched = load_map_bank(\"cave\") end\nfunction _update() end",
             &Input::new(),
             &Font::empty(),
         )
         .expect("Lua banking fixture should load");
 
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Map), 4);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Map), "cave");
         assert_eq!(vm.peek_memory(MAP_RAM_BASE), 6);
         assert_eq!(
             vm.lua_watch("switched")
@@ -889,25 +921,34 @@ mod asset_bank_tests {
     fn collision_bank_follows_map_as_companion_and_preserves_edits() {
         let mut vm = Vm::new(VmConfig::default());
         // Creating a new Map bank creates and selects a fresh, zero-filled
-        // Collision bank at the same id — not a copy of bank 0.
-        assert!(vm.create_asset_bank(AssetBankKind::Map, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 2);
+        // Collision bank at the same name — not a copy of the default.
+        assert!(vm.create_asset_bank(AssetBankKind::Map, "cave"));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), "cave");
         assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 0);
 
         // Switching Map banks carries Collision along in lockstep, and
         // runtime edits to each bank's collision are preserved independently.
         vm.poke_memory(COLLISION_RAM_BASE, 1);
-        assert!(vm.select_asset_bank(AssetBankKind::Map, 0));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 0);
+        assert!(vm.select_asset_bank(AssetBankKind::Map, DEFAULT_BANK_NAME));
+        assert_eq!(
+            vm.active_asset_bank(AssetBankKind::Collision),
+            DEFAULT_BANK_NAME
+        );
         assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 0);
-        assert!(vm.select_asset_bank(AssetBankKind::Map, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 2);
+        assert!(vm.select_asset_bank(AssetBankKind::Map, "cave"));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), "cave");
         assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
 
         // Removing the Map bank removes its companion collision bank too.
-        assert!(vm.remove_asset_bank(AssetBankKind::Map, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 0);
-        assert!(!vm.asset_bank_ids(AssetBankKind::Collision).contains(&2));
+        assert!(vm.remove_asset_bank(AssetBankKind::Map, "cave"));
+        assert_eq!(
+            vm.active_asset_bank(AssetBankKind::Collision),
+            DEFAULT_BANK_NAME
+        );
+        assert!(
+            !vm.asset_bank_names(AssetBankKind::Collision)
+                .contains(&"cave".to_string())
+        );
     }
 
     #[test]
@@ -918,21 +959,21 @@ mod asset_bank_tests {
         vm.load_cart_sections(&[
             CartSection {
                 kind: SectionKind::MapBank,
-                data: encode_asset_bank(4, &vec![0; MAP_LEN]),
+                data: encode_asset_bank("cave", &vec![0; MAP_LEN]),
             },
             CartSection {
                 kind: SectionKind::CollisionBank,
-                data: encode_asset_bank(4, &collision),
+                data: encode_asset_bank("cave", &collision),
             },
         ]);
         vm.load_lua_source(
-            "function _init() switched = load_map_bank(4) end\nfunction _update() end",
+            "function _init() switched = load_map_bank(\"cave\") end\nfunction _update() end",
             &Input::new(),
             &Font::empty(),
         )
         .expect("Lua banking fixture should load");
 
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 4);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), "cave");
         assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
         assert_eq!(
             vm.lua_watch("switched")
@@ -946,13 +987,13 @@ mod asset_bank_tests {
         let mut vm = Vm::new(VmConfig::default());
         vm.load_cart_sections(&[CartSection {
             kind: SectionKind::PaletteBank,
-            data: encode_asset_bank(1, &[11, 22, 33]),
+            data: encode_asset_bank("alt", &[11, 22, 33]),
         }]);
 
         // Before the switch, slot 0 has whatever the default palette is —
         // definitely not (11, 22, 33).
         assert_ne!(vm.get_palette()[0].to_rgb(), [11, 22, 33]);
-        assert!(vm.select_asset_bank(AssetBankKind::Palette, 1));
+        assert!(vm.select_asset_bank(AssetBankKind::Palette, "alt"));
         // Raw RAM moved (this part already worked)...
         assert_eq!(vm.peek_memory(PALETTE_RAM_BASE), 11);
         // ...and critically, so did the render-time Color cache actually
@@ -966,22 +1007,22 @@ mod asset_bank_tests {
         vm.load_cart_sections(&[
             CartSection {
                 kind: SectionKind::PaletteBank,
-                data: encode_asset_bank(1, &[9, 9, 9]),
+                data: encode_asset_bank("alt", &[9, 9, 9]),
             },
             CartSection {
                 kind: SectionKind::SfxBanks,
-                data: encode_asset_bank(1, &[5; SFX_BANK_LEN]),
+                data: encode_asset_bank("alt", &[5; SFX_BANK_LEN]),
             },
             CartSection {
                 kind: SectionKind::MusicBanks,
-                data: encode_asset_bank(1, &[3; MUSIC_BANK_LEN]),
+                data: encode_asset_bank("alt", &[3; MUSIC_BANK_LEN]),
             },
         ]);
         vm.load_lua_source(
             "function _init()\n\
-             palette_ok = load_palette_bank(1)\n\
-             sfx_ok = load_sfx_bank(1)\n\
-             music_ok = load_music_bank(1)\n\
+             palette_ok = load_palette_bank(\"alt\")\n\
+             sfx_ok = load_sfx_bank(\"alt\")\n\
+             music_ok = load_music_bank(\"alt\")\n\
              end\n\
              function _update() end",
             &Input::new(),
@@ -989,9 +1030,9 @@ mod asset_bank_tests {
         )
         .expect("Lua banking fixture should load");
 
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Palette), 1);
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Sfx), 1);
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Music), 1);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Palette), "alt");
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Sfx), "alt");
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Music), "alt");
         assert_eq!(vm.peek_memory(PALETTE_RAM_BASE), 9);
         assert_eq!(vm.peek_memory(SFX_RAM_BASE), 5);
         assert_eq!(vm.peek_memory(MUSIC_RAM_BASE), 3);

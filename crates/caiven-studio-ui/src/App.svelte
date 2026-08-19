@@ -27,8 +27,8 @@
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, collision: [], collisionTypes: [],
-    sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], locals: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: ['default'], mapBanks: ['default'], activeSpriteBank: 'default', activeMapBank: 'default', collision: [], collisionTypes: [],
+    sfx: [], music: [], paletteBanks: ['default'], activePaletteBank: 'default', sfxBanks: ['default'], activeSfxBank: 'default', musicBanks: ['default'], activeMusicBank: 'default', ram: [], globals: [], watches: [], callStack: [], locals: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
     recent: [], api: [], preludeModules: [],
@@ -288,15 +288,15 @@
   function applyAssetBank(bank: Awaited<ReturnType<typeof assetBank>>) {
     studio.ram.splice(MEMORY[bank.kind], bank.data.length, ...bank.data);
     if (bank.kind === 'sprites') {
-      studio.spriteBanks = bank.ids; studio.activeSpriteBank = bank.active; studio.spriteSheet = bank.data;
+      studio.spriteBanks = bank.names; studio.activeSpriteBank = bank.active; studio.spriteSheet = bank.data;
     } else if (bank.kind === 'map') {
-      studio.mapBanks = bank.ids; studio.activeMapBank = bank.active; studio.map = bank.data;
+      studio.mapBanks = bank.names; studio.activeMapBank = bank.active; studio.map = bank.data;
     } else if (bank.kind === 'palette') {
-      studio.paletteBanks = bank.ids; studio.activePaletteBank = bank.active; studio.palette = bytesToHexColors(bank.data);
+      studio.paletteBanks = bank.names; studio.activePaletteBank = bank.active; studio.palette = bytesToHexColors(bank.data);
     } else if (bank.kind === 'sfx') {
-      studio.sfxBanks = bank.ids; studio.activeSfxBank = bank.active; studio.sfx = bank.data;
+      studio.sfxBanks = bank.names; studio.activeSfxBank = bank.active; studio.sfx = bank.data;
     } else {
-      studio.musicBanks = bank.ids; studio.activeMusicBank = bank.active; studio.music = bank.data;
+      studio.musicBanks = bank.names; studio.activeMusicBank = bank.active; studio.music = bank.data;
     }
   }
 
@@ -314,16 +314,16 @@
     finally { bankRefreshes.delete(kind); }
   }
 
-  const activeBankOf: Record<BankKind, () => number> = {
+  const activeBankOf: Record<BankKind, () => string> = {
     sprites: () => studio.activeSpriteBank, map: () => studio.activeMapBank,
     palette: () => studio.activePaletteBank, sfx: () => studio.activeSfxBank, music: () => studio.activeMusicBank,
   };
 
-  async function changeAssetBank(kind: BankKind, action: 'select' | 'create' | 'delete', id?: number) {
-    if (action === 'delete' && !window.confirm(`Delete ${kind} bank ${id}?`)) return;
+  async function changeAssetBank(kind: BankKind, action: 'select' | 'create' | 'delete', name?: string) {
+    if (action === 'delete' && !window.confirm(`Delete ${kind} bank "${name}"?`)) return;
     const request = ++bankRequestSerial[kind];
     try {
-      const next = await assetBank(kind, action, id);
+      const next = await assetBank(kind, action, name);
       if (request !== bankRequestSerial[kind]) return false;
       applyAssetBank(next);
       studio.assetIndex = await readAssetIndex();

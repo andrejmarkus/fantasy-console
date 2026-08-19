@@ -24,7 +24,7 @@ const MAGIC: &[u8; 6] = b"CAIVEN";
 /// Current on-disk cart format version, written by [`write`]. Bump this
 /// (and update `MIN_SUPPORTED_CART_VERSION` if old bytes become unparsable)
 /// whenever the header/section-table shape changes.
-pub(crate) const CART_FORMAT_VERSION: u16 = 3;
+pub(crate) const CART_FORMAT_VERSION: u16 = 4;
 
 /// Oldest version this build still loads. The section table is additive
 /// and self-describing (an unrecognized `SectionKind` just becomes
@@ -33,7 +33,16 @@ pub(crate) const CART_FORMAT_VERSION: u16 = 3;
 /// byte-compatible with this reader — raise this only when a change makes
 /// old bytes genuinely unparsable, and pair it with a migration or an
 /// explicit rejection test.
-const MIN_SUPPORTED_CART_VERSION: u16 = 1;
+///
+/// Raised 3 -> 4 with `CART_FORMAT_VERSION`: additional-bank sections
+/// (`SpriteBank`, `MapBank`, `PaletteBank`, `SfxBanks`, `MusicBanks`,
+/// `CollisionBank`) switched their payload from `[bank_id: u8][data]` to
+/// `[name_len: u8][name][data]` (named banks, hardware-redesign 2.5). A
+/// version-3-or-older cart's numeric bank id would misparse as a name
+/// length under the new decoder, so old carts are rejected outright rather
+/// than silently misread — no migration exists because nothing is in
+/// production yet.
+const MIN_SUPPORTED_CART_VERSION: u16 = 4;
 
 const HEADER_BODY_LEN: usize = 72;
 // 6 (magic) + 2 (version) + 2 (n_sections) + 72 (header body)
