@@ -4,6 +4,9 @@ A practical loop for validating product/feature ideas against real creator
 behavior, not just internal conviction. Pairs with the `caiven-idea` skill
 for ideation and `caiven-feature` for implementation.
 
+0. **Screen the idea against the gate** — every candidate passes the
+   seven-point gate in `design-charter.md` before entering this loop. An idea
+   that fails a point is dropped, not reshaped until it squeaks through.
 1. **Observe creator friction** — from direct feedback, Studio usage
    patterns, or a repeatable pain point noticed while dogfooding.
 2. **State the user problem** — concretely, for a specific target creator

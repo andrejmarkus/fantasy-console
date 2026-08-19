@@ -5,6 +5,73 @@ Studio, and an optional cart-sharing server. Detailed architecture is in
 `docs/development/claude-code-audit.md`; do not load that document unless the
 task needs a broad architecture review.
 
+## Design charter (binding)
+
+Caiven's direction is settled. Treat everything in this section as a
+constraint, not a preference. Changing any of it requires an explicit,
+recorded decision from the user — never a judgement call mid-task.
+
+Full record: `docs/product/design-charter.md` — read it when a decision needs
+more than this summary. If the two ever disagree, the charter wins and this
+section must be corrected.
+
+**Spine — the two clocks.** Caiven is a brain gym (the user types the game
+themselves) that still reaches playable in one sitting.
+
+- **Clock A — friction** (boot, reload, editors, defaults, error messages,
+  export): drive to zero. Spend engineering freely; no simplicity budget.
+- **Clock B — authorship** (the game logic itself): stays hand-typed. Small
+  API, no autopilot, no framework that writes the game's structure.
+- **The gate, one sentence:** does this remove friction, or remove
+  authorship? Friction is bought freely. Authorship is never traded for
+  speed.
+
+**Seven-point gate.** A proposed API must pass all seven:
+
+1. Removes friction (Clock A), not authorship (Clock B).
+2. Fits an API tier and satisfies that tier's rule.
+3. Does not change frozen hardware.
+4. Not on the no-list.
+5. Visible result on first use, no setup ritual.
+6. Only one obvious way — does not duplicate an existing call.
+7. Explainable to a beginner in one sentence.
+
+**Frozen hardware.** Target state; the code still carries the old numbers
+until the redesign phases land. Do not propose changes to these values.
+
+| Spec | Value |
+| --- | --- |
+| Screen | 192 × 128 (24 × 16 tiles) |
+| Palette | 16 colors |
+| Sprites | 8 × 8, 256 per bank |
+| Map | 128 × 128 tiles + collision layer |
+| Frame rate | 60 Hz fixed |
+| Audio | 6 voices: 4 typed music (2 pulse, 1 triangle, 1 noise) + 2 sfx |
+| Input | 4 directions + 2 actions + Select; START reserved |
+| Save | one blob (`save_data`/`load_data`); no numeric slot API |
+
+Growth happens only through **named banks** (`load_sprite_bank("forest")`),
+unbounded in count, bounded by the 128 KiB cart cap. Banking is invisible
+until needed: the default bank auto-loads.
+
+**Permanent no-list.** No 3D. No external I/O (no net, filesystem, or
+subprocess). No shaders, render targets, or blend-mode zoo. No engine
+frameworks that own the game loop. No custom Lua dialect — real Lua 5.4
+stays real. No telemetry or analytics SDK. **No in-product LLM** — the
+console is the human-craft antidote to the AI era; this is positioning, not
+an omission.
+
+**API tiers.** T0 builtins (Rust): only what cannot be written in Lua. T1
+prelude core: math-shaped, no game structure. T2 opt-in modules: the
+*readable-lesson cap* — pure Lua, roughly ≤ 100 lines, source readable in
+Studio, understandable in one sitting. A module is a teaching example, not a
+black box.
+
+**Deliberate non-limits, do not re-argue.** No token limit and no code-size
+limit (they punish readable code). The 128 KiB cart cap is an operations
+constraint protecting the Port database, not a design forcing function. Long
+descriptive API names stay (`draw_line`, not `line`).
+
 ## Working rules
 
 - Inspect the current implementation before editing; do not rely on specs or
@@ -77,6 +144,12 @@ switching to an unrelated task.
 
 ## Where to look next
 
+- Design charter: `docs/product/design-charter.md` — binding product
+  direction, frozen hardware, and the seven-point API gate.
+- Pending redesign: `docs/product/hardware-redesign-plan.md` — the Phase 2/3
+  change list moving the code to the charter's target hardware. The frozen
+  hardware table above is target state; the code still carries the old
+  numbers until those phases land.
 - Path-scoped rules: `.claude/rules/` (rust, vm-runtime, lua-api,
   cart-format, studio-tauri, studio-ui, port-backend, port-web, testing,
   security, performance, documentation, release).

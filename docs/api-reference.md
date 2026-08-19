@@ -71,6 +71,11 @@ ramps). `byte3 = 0` is center pan with an instant on/off envelope.
 | `save_data(table)`      | Replace the persisted save blob (string/number/bool/nested-table only); errors over 4KiB packed or on an unserializable value |
 | `load_data()`           | Return the persisted save blob, or `{}` if `save_data` has never been called                          |
 
+> [!NOTE]
+> `dset`/`dget` are slated for removal in the pending hardware redesign;
+> `save_data`/`load_data` is the one supported way to persist state. See the
+> [design charter](product/design-charter.md).
+
 Save data is per cart (keyed the same way save states already are — see
 System Specifications below) and is written to disk by the host (Machine
 or Studio), not by the Lua sandbox directly.
@@ -182,6 +187,13 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | `Camera.follow(entity, opts)` / `.unfollow()` / `.shake(amount, duration)` / `.update()` | Wraps set_camera() with smoothed follow (opts.lerp, default 1) and decaying shake |
 
 ## System Specifications
+
+> [!IMPORTANT]
+> The numbers below describe the console **as it is today**. A hardware
+> redesign is approved and pending: 192×128 screen, 128×128 map, redesigned
+> 16-color palette, 6 typed audio voices, named banks, and `dset`/`dget`
+> removed. Target spec: [design charter](product/design-charter.md) §4.
+> Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 
 | Component         | Specification                                                                     |
 | :-----------------| :------------------------------------------------------------------------------------|

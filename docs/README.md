@@ -1,5 +1,7 @@
 # Caiven Documentation
 
+- [Design Charter](product/design-charter.md) — binding product direction, frozen hardware, seven-point API gate
+- [Hardware Redesign Plan](product/hardware-redesign-plan.md) — pending Phase 2/3 change list
 - [Building from Source](building.md) — prerequisites, install, dev workflow, CLI, project layout
 - [Tutorial: Your First Game](tutorial.md) — full walkthrough with the cart lifecycle
 - [Built-in API Reference](api-reference.md) — graphics, input, audio, gameplay stdlib, system specs, memory map
