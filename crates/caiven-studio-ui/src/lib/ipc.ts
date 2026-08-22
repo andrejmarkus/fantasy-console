@@ -73,6 +73,10 @@ export const MEMORY = {
   palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC703,
 } as const;
 
+/** Sprite sheet shape. Mirrors `caiven_core::memory::SPRITE_COUNT`/`SPRITE_SHEET_COLS`. */
+export const SPRITE_COUNT = 256;
+export const SPRITE_SHEET_COLS = 16;
+
 /** Total addressable memory. Mirrors `caiven_core::memory::RAM_SIZE`. */
 export const RAM_SIZE = 98304;
 

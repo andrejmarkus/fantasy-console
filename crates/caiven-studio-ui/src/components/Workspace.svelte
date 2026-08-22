@@ -3,7 +3,7 @@
   import {
     Image, Layers, Pipette, Volume2, Music, FileCode2, FileImage,
     Plus, Pencil, PaintBucket, Minus, Square, Undo2, Redo2, Eraser, ShieldCheck,
-    FlipHorizontal, RotateCw, Trash2, Search, FolderOpen, Play,
+    FlipHorizontal, FlipVertical, RotateCw, RotateCcw, Trash2, Search, FolderOpen, Play,
     ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
     UserRound, Globe, Gamepad2, Grid3X3, BoxSelect,
   } from '@lucide/svelte';
@@ -16,8 +16,9 @@
     EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
-    dragPanScroll, MAP_ZOOM_LEVELS, nextMapZoom,
-    type CollisionBrush, type CollisionEdit,
+    composeGroup, decomposeGroup, dragPanScroll, flipHorizontal, flipVertical, MAP_ZOOM_LEVELS, nextMapZoom,
+    pasteRegion, regionValues, rotateClockwise, rotateCounterClockwise,
+    type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryState } from '../lib/history';
   import LuaEditor from './LuaEditor.svelte';
@@ -26,6 +27,7 @@
   import {
     MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_COUNT,
     MUSIC_PATTERN_LEN, MUSIC_PATTERN_ROWS, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH,
+    SPRITE_SHEET_COLS,
   } from '../lib/ipc';
 
   /** Music channel timbres, fixed by column. Mirrors `audio::MUSIC_VOICE_KINDS`. */
@@ -153,6 +155,17 @@
   // into the pencil tool, reusing the same stamp-painting path as 3a.
   let mapSelection = $state<MapRegion | null>(null);
   let mapClipboard = $state<{ w: number; h: number; tiles: number[] } | null>(null);
+  // Sprite editor's group canvas: {w,h} adjacent 8x8 slots edited as one
+  // canvas, anchored at selectedSprite's row/col. {1,1} is the plain
+  // single-sprite case, unchanged from before the group canvas existed.
+  let spriteGroup = $state<{ w: number; h: number }>({ w: 1, h: 1 });
+  let spriteSheetDrag = $state<{ anchor: number; current: number } | null>(null);
+  let spriteSheetEl: HTMLDivElement | undefined = $state();
+  // The sprite 'select' tool's marquee (in group-pixel coordinates) and the
+  // last thing copied/cut from it — mirrors mapSelection/mapClipboard above.
+  let spriteSelection = $state<PixelRegion | null>(null);
+  let spriteClipboard = $state<{ w: number; h: number; pixels: number[] } | null>(null);
+  let spriteZoom = $state(1);
   let mapTool = $state<MapTool>('pencil');
   let mapLayer = $state<'tiles' | 'collision'>('tiles');
   let collisionBrush = $state<CollisionBrush>(1);
@@ -230,7 +243,12 @@
   ];
 
   const active = $derived(sources[activeSource]);
-  const sprite = $derived(spriteSheet.slice(selectedSprite * 64, selectedSprite * 64 + 64));
+  // selectedSprite is always the group's top-left slot; clamp the group so it
+  // never reaches past the sheet's right/bottom edge from wherever it's anchored.
+  const groupOriginSlot = $derived(selectedSprite);
+  const groupCols = $derived(Math.min(spriteGroup.w, SPRITE_SHEET_COLS - (selectedSprite % SPRITE_SHEET_COLS)));
+  const groupRows = $derived(Math.min(spriteGroup.h, Math.ceil(256 / SPRITE_SHEET_COLS) - Math.floor(selectedSprite / SPRITE_SHEET_COLS)));
+  const groupSprite = $derived(composeGroup(spriteSheet, groupOriginSlot, groupCols, groupRows, SPRITE_SHEET_COLS));
   // Empty slots render as palette[0] on a black sheet, which makes them invisible.
   // Track which ones hold data so the sheet can grey them out instead.
   const spriteUsed = $derived.by(() => {
@@ -257,6 +275,9 @@
     mapStamp = null;
     mapSelection = null;
     mapClipboard = null;
+    spriteGroup = { w: 1, h: 1 };
+    spriteSelection = null;
+    spriteClipboard = null;
     sourceCursor = {};
   });
   $effect(() => {
@@ -382,27 +403,58 @@
         || entry.refs.some((reference) => reference.label.toLowerCase().includes(needle)));
   });
 
-  function commitSprite(next: number[]) {
-    if (next.every((value, index) => value === sprite[index])) return;
-    const spriteId = selectedSprite;
-    const before = [...sprite];
-    const after = [...next];
+  // Splits an edited group canvas back into per-slot writes and records one
+  // history entry covering every slot the group touched — undo/redo restore
+  // the whole group atomically, not slot by slot.
+  function commitGroup(next: number[]) {
+    const parts = decomposeGroup(next, groupOriginSlot, groupCols, groupRows, SPRITE_SHEET_COLS);
+    const changes = parts
+      .map((part) => ({ slot: part.slot, before: spriteSheet.slice(part.slot * 64, part.slot * 64 + 64), after: part.pixels }))
+      .filter((change) => change.after.some((value, index) => value !== change.before[index]));
+    if (!changes.length) return;
     spriteHistory = pushEntry(spriteHistory, {
-      label: `Sprite ${spriteId.toString().padStart(3, '0')}`,
-      undo: () => onSprite(spriteId, before),
-      redo: () => onSprite(spriteId, after),
+      label: changes.length > 1 ? `Sprite group (${changes.length} slots)` : `Sprite ${changes[0].slot.toString().padStart(3, '0')}`,
+      undo: () => changes.forEach((change) => onSprite(change.slot, change.before)),
+      redo: () => changes.forEach((change) => onSprite(change.slot, change.after)),
     });
-    onSprite(spriteId, next);
+    changes.forEach((change) => onSprite(change.slot, change.after));
   }
 
   function strokeSprite(pixels: Pixel[]) {
-    const next = [...sprite];
+    const next = [...groupSprite];
     for (const pixel of pixels) next[pixel.index] = pixel.color;
-    commitSprite(next);
+    commitGroup(next);
   }
 
   function undoSprite() { spriteHistory = undoEntry(spriteHistory); }
   function redoSpriteEdit() { spriteHistory = redoEntry(spriteHistory); }
+
+  function copySpriteSelection() {
+    if (!spriteSelection) return;
+    spriteClipboard = { w: spriteSelection.w, h: spriteSelection.h, pixels: regionValues(groupSprite, spriteSelection, groupCols * 8) };
+  }
+
+  function cutSpriteSelection() {
+    if (!spriteSelection) return;
+    copySpriteSelection();
+    const gw = groupCols * 8, gh = groupRows * 8;
+    const next = [...groupSprite];
+    for (let dy = 0; dy < spriteSelection.h; dy += 1) for (let dx = 0; dx < spriteSelection.w; dx += 1) {
+      const x = spriteSelection.x0 + dx, y = spriteSelection.y0 + dy;
+      if (x < gw && y < gh) next[y * gw + x] = 0;
+    }
+    commitGroup(next);
+  }
+
+  function pasteSpriteClipboard() {
+    if (!spriteClipboard) return;
+    const gw = groupCols * 8, gh = groupRows * 8;
+    const x0 = spriteSelection?.x0 ?? 0, y0 = spriteSelection?.y0 ?? 0;
+    const edits = pasteRegion(x0, y0, spriteClipboard.w, spriteClipboard.h, spriteClipboard.pixels, gw, gh);
+    const next = [...groupSprite];
+    for (const edit of edits) next[edit.index] = edit.value;
+    commitGroup(next);
+  }
 
   function commitMap(cells: { offset: number; tile: number }[]) {
     const latest = new globalThis.Map<number, number>();
@@ -715,19 +767,72 @@
     if (mapPanFrame !== undefined) cancelAnimationFrame(mapPanFrame);
   });
 
-  function transformSprite(kind: 'flip' | 'rotate' | 'clear') {
-    const next = Array(64).fill(0);
-    for (let y = 0; y < 8; y += 1) for (let x = 0; x < 8; x += 1) {
-      if (kind === 'flip') next[y * 8 + (7 - x)] = sprite[y * 8 + x];
-      if (kind === 'rotate') next[x * 8 + (7 - y)] = sprite[y * 8 + x];
-    }
-    commitSprite(kind === 'clear' ? next : next);
+  function transformSprite(kind: 'flip' | 'vflip' | 'rotate' | 'rotate-ccw' | 'clear') {
+    const gw = groupCols * 8, gh = groupRows * 8;
+    if (kind === 'clear') { commitGroup(new Array(gw * gh).fill(0)); return; }
+    if (kind === 'flip') { commitGroup(flipHorizontal(groupSprite, gw, gh)); return; }
+    if (kind === 'vflip') { commitGroup(flipVertical(groupSprite, gw, gh)); return; }
+    // Rotate only makes sense on a square group — a non-square block would need
+    // a differently-shaped canvas after rotating, which the fixed slot grid can't hold.
+    if (groupCols !== groupRows) return;
+    if (kind === 'rotate') commitGroup(rotateClockwise(groupSprite, gw, gh));
+    if (kind === 'rotate-ccw') commitGroup(rotateCounterClockwise(groupSprite, gw, gh));
   }
 
   function selectSprite(index: number) {
     // No history reset: entries capture their own sprite id, so undo/redo stay
     // valid even after switching which sprite is on screen.
     selectedSprite = index;
+    spriteGroup = { w: 1, h: 1 };
+    spriteSelection = null;
+  }
+
+  // Sprite sheet: shift-drag across slots picks an N x M group canvas, the
+  // same spatial gesture as the map's tile-picker marquee above.
+  function spriteSheetIndexFromEvent(event: PointerEvent): number {
+    const rect = spriteSheetEl!.getBoundingClientRect();
+    const col = Math.max(0, Math.min(SPRITE_SHEET_COLS - 1, Math.floor(((event.clientX - rect.left) / rect.width) * SPRITE_SHEET_COLS)));
+    const row = Math.max(0, Math.min(15, Math.floor(((event.clientY - rect.top) / rect.height) * 16)));
+    return row * SPRITE_SHEET_COLS + col;
+  }
+
+  function beginSpriteSheetDrag(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const index = spriteSheetIndexFromEvent(event);
+    spriteSheetDrag = { anchor: index, current: index };
+    spriteSheetEl!.setPointerCapture(event.pointerId);
+  }
+
+  function moveSpriteSheetDrag(event: PointerEvent) {
+    if (!spriteSheetDrag) return;
+    spriteSheetDrag = { ...spriteSheetDrag, current: spriteSheetIndexFromEvent(event) };
+  }
+
+  function finishSpriteSheetDrag() {
+    if (!spriteSheetDrag) return;
+    const ax = spriteSheetDrag.anchor % SPRITE_SHEET_COLS, ay = Math.floor(spriteSheetDrag.anchor / SPRITE_SHEET_COLS);
+    const cx = spriteSheetDrag.current % SPRITE_SHEET_COLS, cy = Math.floor(spriteSheetDrag.current / SPRITE_SHEET_COLS);
+    const x0 = Math.min(ax, cx), y0 = Math.min(ay, cy);
+    const w = Math.abs(ax - cx) + 1, h = Math.abs(ay - cy) + 1;
+    selectedSprite = y0 * SPRITE_SHEET_COLS + x0;
+    spriteGroup = { w, h };
+    spriteSelection = null;
+    spriteSheetDrag = null;
+  }
+
+  function inSpriteSheetGroup(index: number): boolean {
+    const x = index % SPRITE_SHEET_COLS, y = Math.floor(index / SPRITE_SHEET_COLS);
+    const ox = selectedSprite % SPRITE_SHEET_COLS, oy = Math.floor(selectedSprite / SPRITE_SHEET_COLS);
+    return x >= ox && x < ox + groupCols && y >= oy && y < oy + groupRows;
+  }
+
+  function inSpriteSheetDragPreview(index: number): boolean {
+    if (!spriteSheetDrag) return false;
+    const ax = spriteSheetDrag.anchor % SPRITE_SHEET_COLS, ay = Math.floor(spriteSheetDrag.anchor / SPRITE_SHEET_COLS);
+    const cx = spriteSheetDrag.current % SPRITE_SHEET_COLS, cy = Math.floor(spriteSheetDrag.current / SPRITE_SHEET_COLS);
+    const x0 = Math.min(ax, cx), x1 = Math.max(ax, cx), y0 = Math.min(ay, cy), y1 = Math.max(ay, cy);
+    const x = index % SPRITE_SHEET_COLS, y = Math.floor(index / SPRITE_SHEET_COLS);
+    return x >= x0 && x <= x1 && y >= y0 && y <= y1;
   }
 
   // Each sfx slot is 16 steps x 4 bytes: note, volume, wave (0 square / 1 noise),
@@ -1005,6 +1110,12 @@
       if (key === 'x' && mapSelection) { event.preventDefault(); cutSelection(); return; }
       if (key === 'v' && mapClipboard) { event.preventDefault(); pasteClipboard(); return; }
     }
+    if ((event.metaKey || event.ctrlKey) && screen === 'sprites' && !isTypingTarget(event.target)) {
+      const key = event.key.toLowerCase();
+      if (key === 'c' && spriteSelection) { event.preventDefault(); copySpriteSelection(); return; }
+      if (key === 'x' && spriteSelection) { event.preventDefault(); cutSpriteSelection(); return; }
+      if (key === 'v' && spriteClipboard) { event.preventDefault(); pasteSpriteClipboard(); return; }
+    }
     if (event.key === ' ' && screen === 'map' && !isTypingTarget(event.target)) {
       event.preventDefault();
       spacePan = true;
@@ -1203,21 +1314,40 @@
           {@const Icon = item.icon}
           <button class:active={tool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => tool = item.id as SpriteTool}><Icon size={18} /></button>
         {/each}
+        <button
+          class:active={tool === 'select'}
+          title="Select — marquee a region, then Ctrl+C/X to copy/cut, Ctrl+V to paste"
+          onclick={() => tool = 'select'}
+        ><BoxSelect size={18} /></button>
         <span></span>
         <button title="Undo sprite edit" disabled={!spriteHistory.undo.length} onclick={undoSprite}><Undo2 size={18} /></button><button title="Redo sprite edit" disabled={!spriteHistory.redo.length} onclick={redoSpriteEdit}><Redo2 size={18} /></button>
-        <button title="Flip horizontally" onclick={() => transformSprite('flip')}><FlipHorizontal size={18} /></button><button title="Rotate clockwise" onclick={() => transformSprite('rotate')}><RotateCw size={18} /></button>
+        <button title="Flip horizontally" onclick={() => transformSprite('flip')}><FlipHorizontal size={18} /></button>
+        <button title="Flip vertically" onclick={() => transformSprite('vflip')}><FlipVertical size={18} /></button>
+        <button title={groupCols === groupRows ? 'Rotate clockwise' : 'Rotate needs a square group'} disabled={groupCols !== groupRows} onclick={() => transformSprite('rotate')}><RotateCw size={18} /></button>
+        <button title={groupCols === groupRows ? 'Rotate counter-clockwise' : 'Rotate needs a square group'} disabled={groupCols !== groupRows} onclick={() => transformSprite('rotate-ccw')}><RotateCcw size={18} /></button>
         <button class="danger" title="Clear sprite" onclick={() => transformSprite('clear')}><Trash2 size={18} /></button>
       </aside>
       <div class="asset-canvas-wrap" data-tour-target="draw">
-        <div class="asset-heading"><span><span class="eyebrow">Sprite</span><strong>{selectedSprite.toString().padStart(3,'0')}</strong></span><code>8 × 8 px · 64 bytes</code></div>
+        <div class="asset-heading">
+          <span><span class="eyebrow">Sprite</span><strong>{selectedSprite.toString().padStart(3,'0')}</strong>{#if groupCols > 1 || groupRows > 1}<em>{groupCols} × {groupRows} group</em>{/if}</span>
+          <code>{groupCols * 8} × {groupRows * 8} px · {groupCols * groupRows * 64} bytes</code>
+        </div>
         <SpriteCanvas
-          {sprite}
+          sprite={groupSprite}
+          cols={groupCols}
+          rows={groupRows}
+          zoom={spriteZoom}
           {palette}
           {selectedColor}
           {tool}
           onStroke={strokeSprite}
           onPick={(color) => selectedColor = color}
+          onSelectionChange={(region) => spriteSelection = region}
         />
+        <div class="map-zoom sprite-zoom" aria-label="Sprite zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(spriteZoom - value) < 0.02} onclick={() => spriteZoom = value}>{value * 100}%</button>{/each}</div>
+        {#if tool === 'select'}
+          <p class="map-note subtle">{spriteSelection ? `${spriteSelection.w} × ${spriteSelection.h} selected` : 'Drag to select a region'} — Ctrl+C copy · Ctrl+X cut · Ctrl+V paste.</p>
+        {/if}
         <div class="palette-strip">
           {#each palette as color, index}<button aria-label={`Color ${index}`} class:active={selectedColor === index} style={`--swatch:${color}`} onclick={() => selectedColor = index}></button>{/each}
         </div>
@@ -1225,13 +1355,24 @@
       </div>
       <aside class="sheet-panel">
         <div class="panel-cap"><span class="eyebrow">Sprite sheet</span><code>256 slots</code></div>
-        <div class="sprite-sheet">
+        <p class="map-note subtle">Drag across the sheet to edit an N × M group as one canvas.</p>
+        <div
+          class="sprite-sheet"
+          bind:this={spriteSheetEl}
+          role="application"
+          aria-label="Sprite sheet — drag to select an adjacent group of slots to edit as one canvas."
+          onpointerdown={beginSpriteSheetDrag}
+          onpointermove={moveSpriteSheetDrag}
+          onpointerup={finishSpriteSheetDrag}
+          onpointercancel={finishSpriteSheetDrag}
+        >
           {#each Array(256) as _, index}
             <button
-              class:active={selectedSprite === index}
+              tabindex="-1"
+              class:active={inSpriteSheetGroup(index)}
+              class:previewed={inSpriteSheetDragPreview(index)}
               class:empty={!spriteUsed[index]}
               title={`Sprite ${index.toString().padStart(3, '0')}${spriteUsed[index] ? '' : ' — empty'}`}
-              onclick={() => selectSprite(index)}
             >
               {#if spriteUsed[index]}
                 {#each Array(64) as _, p}<i style={`background:${palette[spriteSheet[index * 64 + p] ?? 0]}`}></i>{/each}

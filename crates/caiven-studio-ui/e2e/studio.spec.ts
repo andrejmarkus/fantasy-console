@@ -102,13 +102,42 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByLabel('Color 8').click();
   await page.getByLabel('8 by 8 sprite grid').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Flip horizontally').click();
+  await page.getByTitle('Flip vertically').click();
+  await page.getByTitle('Rotate counter-clockwise').click();
   await page.getByTitle('Undo sprite edit').click();
+  await page.getByTitle('Undo sprite edit').click();
+  await page.getByTitle('Undo sprite edit').click();
+
+  // Marquee-select a corner of the sprite, copy it, then paste it back — the
+  // select tool and clipboard added for 3.1's sprite-editor catch-up.
+  await page.getByTitle(/^Select/).click();
+  const spriteGrid = page.getByLabel('8 by 8 sprite grid');
+  const spriteBox = (await spriteGrid.boundingBox())!;
+  await page.mouse.move(spriteBox.x + spriteBox.width * 0.1, spriteBox.y + spriteBox.height * 0.1);
+  await page.mouse.down();
+  await page.mouse.move(spriteBox.x + spriteBox.width * 0.4, spriteBox.y + spriteBox.height * 0.4);
+  await page.mouse.up();
+  await expect(page.getByText(/selected/)).toBeVisible();
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+
+  // Drag across the sprite sheet to edit a 2x2 group as one canvas, then zoom.
+  const sheet = page.locator('.sprite-sheet');
+  const sheetBox = (await sheet.boundingBox())!;
+  const slot = sheetBox.width / 16;
+  await page.mouse.move(sheetBox.x + slot * 0.5, sheetBox.y + slot * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(sheetBox.x + slot * 1.5, sheetBox.y + slot * 1.5);
+  await page.mouse.up();
+  await expect(page.getByLabel('16 by 16 sprite grid')).toBeVisible();
+  await page.getByRole('button', { name: '200%', exact: true }).click();
+  await page.getByTitle('Pencil (p)').click();
 
   await page.getByRole('button', { name: 'Map', exact: true }).click();
   const tilePicker = page.getByLabel(/^Tile picker/);
   const pickerBox = await tilePicker.boundingBox();
   await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
-  await page.getByLabel('64 by 64 tile map').click({ position: { x: 10, y: 10 } });
+  await page.getByLabel('128 by 128 tile map').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Fill (f)').click();
   await page.getByRole('button', { name: 'Collision', exact: true }).click();
   await page.locator('.collision-type-picker select').selectOption({ label: 'solid' });

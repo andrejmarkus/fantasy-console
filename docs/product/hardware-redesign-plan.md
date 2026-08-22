@@ -391,11 +391,52 @@ manager) — it needs finishing, not building. The **sprite editor is the weak
 surface** and is the priority, because it is where the 8×8 hardware decision
 gets paid for.
 
-### 3.1 Sprite editor catch-up (priority)
+### 3.1 Sprite editor catch-up (priority) — **done**
 
-`SpriteCanvas.svelte`, `Workspace.svelte:1171-1215`. Missing today: marquee
-select, copy/paste between slots, an N × N group canvas spanning adjacent 8×8
-slots, zoom, vertical flip, counter-clockwise rotate.
+`SpriteCanvas.svelte` and `Workspace.svelte`'s sprite screen. Was missing:
+marquee select, copy/paste between slots, an N × N group canvas spanning
+adjacent 8×8 slots, zoom, vertical flip, counter-clockwise rotate.
+
+- `SpriteCanvas.svelte` generalized from a fixed 8×8 canvas to `cols`/`rows`
+  props (in 8px slots) plus a `zoom` prop, so it can render either a plain
+  sprite or a composed N×M group at any display scale. Gained a `'select'`
+  tool mirroring `MapCanvas.svelte`'s marquee (same anchor/current-drag
+  pattern, same `onSelectionChange` callback shape).
+- `crates/caiven-studio-ui/src/lib/editorMath.ts` gained the pure, unit-tested
+  math the feature needed: `regionFromPoints`/`regionValues`/`pasteRegion`
+  (marquee selection and clipboard paste, generalized from `MapCanvas`'s
+  inline region math), `flipHorizontal`/`flipVertical`/`rotateClockwise`/
+  `rotateCounterClockwise` (generic over width/height, not hardcoded 8×8),
+  and `composeGroup`/`decomposeGroup` (splits/joins an N×M block of adjacent
+  sprite-sheet slots into one flat pixel grid for the group canvas).
+- `Workspace.svelte`: `spriteGroup` state tracks the selected group size;
+  `groupSprite` composes it from `spriteSheet` on every render.
+  `commitGroup` replaces the old single-sprite `commitSprite` — it
+  decomposes an edited group canvas back to per-slot writes and records
+  *one* history entry covering every touched slot, so undo/redo restore
+  the whole group atomically. Rotate is disabled in the toolbar when the
+  group isn't square (`groupCols !== groupRows`) — a non-square block would
+  need a differently-shaped canvas after rotating, which the fixed slot
+  grid can't hold. A drag across the sprite-sheet panel (mirroring the
+  existing tile-picker marquee) picks the group; a plain click is a 1×1
+  group, unchanged from before this landed.
+- `ipc.ts` gained `SPRITE_COUNT`/`SPRITE_SHEET_COLS`, mirroring
+  `caiven_core::memory`; a new `crates/caiven-vm/tests/sprite_sheet_sync.rs`
+  drift test parses `ipc.ts` and fails if either constant goes out of sync —
+  the same "frontend copies of console constants drift silently" trap named
+  in 2.3 and 2.9, guarded before it could recur here.
+- Purely additive to the sprite-editor UI and the `editorMath.ts`/`ipc.ts`
+  surface; no cart format, save format, or Lua API change, so no
+  compatibility note is needed.
+- Tests: 7 new `editorMath.test.ts` cases cover the new pure functions
+  directly (region math, flip/rotate, compose/decompose round-trip). A
+  Playwright case (`studio.spec.ts`) exercises the real flow: paint, flip,
+  flip vertically, rotate counter-clockwise, undo ×3, marquee-select a
+  corner and copy/paste it, drag a 2×2 group on the sheet panel and confirm
+  the canvas becomes `16 by 16`, then zoom to 200%. Also fixed an unrelated,
+  pre-existing stale assertion in that same test (`'64 by 64 tile map'`,
+  left over from before 2.2's map resize to 128×128) that blocked running
+  it at all.
 
 ### 3.2 Map autotile and selection ops
 
