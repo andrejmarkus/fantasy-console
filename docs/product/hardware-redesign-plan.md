@@ -255,16 +255,41 @@ rows; the System Specifications pending-note now lists item 2.6 as landed.
 No Studio Lua autocomplete list needed touching — Studio doesn't hardcode
 a builtin-name list; it has no separate copy to drift.
 
-### 2.7 Per-frame execution budget
+### 2.7 Per-frame execution budget — DONE, committed on `master`.
 
-- `crates/caiven-vm/src/vm/execution.rs` and `fault.rs` — an instruction-count
-  hook that trips after a per-frame budget.
-- Hook installation near the frame-call site in `lua_exec.rs`.
-- Error surfaces with a line number and a plain-language message ("your game did
-  not finish drawing this frame — is there a loop that never ends?"), not a Lua
-  traceback.
+Both real gameplay paths install an mlua `every_nth_instruction` count hook
+in `crates/caiven-vm/src/vm/lua_exec.rs`: plain `run_frame_lua` (used by
+`caiven-machine` and `caiven-studio`'s Port preview) and `run_frame_lua_bp`
+(Studio's breakpoint-aware run, which previously only installed a hook —
+`EVERY_LINE` — when breakpoints existed; the budget hook now always runs
+there too, with `EVERY_LINE` layered on top only when breakpoints are set,
+since both share one `lua.set_hook` call and are told apart via
+`debug.event()`). The hook counts in strides of `INSTRUCTION_HOOK_STRIDE`
+(10,000) and aborts the call once `FRAME_INSTRUCTION_BUDGET` (25,000,000)
+is exceeded — chosen as generous headroom over a normal frame's real
+instruction count while still bounding a runaway script to a fraction of a
+second, confirmed by a test where an unguarded `while true do end` used to
+hang the test process forever and now returns in ~50ms.
 
-Must not `unwrap`/`panic` on the fault path.
+On trip, the hook captures source+line the same way the breakpoint hook
+already did (factored into a shared `hook_debug_source` helper) and returns
+a plain-language message — "your game did not finish drawing this frame —
+is there a loop that never ends?" — instead of forwarding the raw `mlua`
+error, per the charter's "not a Lua traceback" requirement. `VmFault` grew
+an `ExecutionBudgetExceeded` variant, kept distinct from generic `LuaError`
+so a host can eventually tell "your script has a bug" apart from "your
+script never yields"; `LuaRunOutcome::Error` (already wired end to end to
+Studio's Runtime-error diagnostic/pause UI) carries the same location and
+message for the breakpoint-aware path. No `unwrap`/`expect`/panic on the
+fault path — the location is `Option`-wrapped exactly like an ordinary
+Lua-error location when mlua can't resolve a current line.
+
+Tests added in `crates/caiven-vm/tests/lua_script.rs`:
+`run_frame_aborts_an_infinite_loop_instead_of_hanging` (regression test —
+would hang forever pre-fix) and
+`run_frame_lua_bp_reports_execution_budget_exceeded_with_line`. An existing
+test's stale comment (claiming plain `run_frame()` "never wires the hook at
+all") was corrected to describe the new budget-only hook.
 
 ### 2.8 Optional `w` / `h` on `sprite()`
 

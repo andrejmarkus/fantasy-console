@@ -218,8 +218,8 @@ math. Deciding the split is Phase 2 work; no module is edited by this charter.
 
 The hardware table in §4 is **target state**. The 192 × 128 screen (item 2.1),
 the 128 × 128 map (item 2.2), the redesigned palette (item 2.3), the six
-typed audio voices (item 2.4), named banks (item 2.5), and the `dset`/`dget`
-removal (item 2.6) have landed. The code still carries the pre-redesign
-shape in what's left (no per-frame execution budget). The redesign lands
-phase by phase; the charter is what those phases are steering toward, and
-is authoritative in any disagreement with the code.
+typed audio voices (item 2.4), named banks (item 2.5), the `dset`/`dget`
+removal (item 2.6), and the per-frame execution budget watchdog (item 2.7)
+have landed. The redesign lands phase by phase; the charter is what those
+phases are steering toward, and is authoritative in any disagreement with
+the code.

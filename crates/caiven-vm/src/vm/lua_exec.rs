@@ -255,6 +255,22 @@ pub fn prelude_module_catalog() -> Vec<(&'static str, &'static [&'static str])> 
 const TARGET_FPS: f64 = 60.0;
 const MAX_CAPTURED_OUTPUT_LINES: usize = 200;
 
+/// Lua VM instructions allowed in one `_update()`/`_draw()` pair before the
+/// watchdog assumes an infinite loop and aborts the frame instead of hanging
+/// the console. A normal frame (map draw, sprites, particles) runs in the
+/// thousands to low millions of instructions, so this leaves generous
+/// headroom while still bounding a runaway script to well under a second.
+const FRAME_INSTRUCTION_BUDGET: u32 = 25_000_000;
+/// mlua's instruction-count hook fires once per this many executed
+/// instructions — the stride trades check granularity for per-frame
+/// overhead, since the hook is Rust code called from inside the Lua VM loop.
+const INSTRUCTION_HOOK_STRIDE: u32 = 10_000;
+/// Plain-language watchdog message — deliberately not an mlua traceback, per
+/// the design charter's "must fail with a line number and a plain-language
+/// message" watchdog requirement.
+const EXECUTION_BUDGET_MESSAGE: &str =
+    "your game did not finish drawing this frame — is there a loop that never ends?";
+
 pub(super) struct LuaScript {
     lua: Lua,
     output: Arc<Mutex<Vec<String>>>,
@@ -336,6 +352,19 @@ const MAX_EXPAND_ENTRIES: usize = 200;
 
 fn normalized_debug_source(source: &str) -> String {
     source.trim_start_matches(['@', '=']).replace('\\', "/")
+}
+
+/// Normalized source name for a hook callback's current frame, falling back
+/// to `"cart"` when mlua can't resolve one — shared by the breakpoint and
+/// execution-budget hooks.
+fn hook_debug_source(debug: &mlua::Debug) -> String {
+    let debug_source = debug.source();
+    debug_source
+        .short_src
+        .as_deref()
+        .or(debug_source.source.as_deref())
+        .map(normalized_debug_source)
+        .unwrap_or_else(|| "cart".to_string())
 }
 
 /// Walks the interpreter stack from the innermost frame outward, for the
@@ -1689,6 +1718,29 @@ impl Vm {
         let width = self.config.width;
         let height = self.config.height;
 
+        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
+        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        {
+            let budget_hook = budget_hit.clone();
+            let instructions_hook = instructions.clone();
+            lua.set_hook(
+                HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
+                move |_lua, debug| {
+                    let mut count = instructions_hook.borrow_mut();
+                    *count += INSTRUCTION_HOOK_STRIDE;
+                    if *count < FRAME_INSTRUCTION_BUDGET {
+                        return Ok(VmState::Continue);
+                    }
+                    let line = debug.curr_line();
+                    *budget_hook.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
+                        source: hook_debug_source(&debug),
+                        line: line as usize,
+                    });
+                    Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE))
+                },
+            );
+        }
+
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
             register_builtins(
@@ -1721,16 +1773,28 @@ impl Vm {
             }
             Ok(())
         });
+        lua.remove_hook();
 
         if let Err(e) = result {
-            log::error!("Lua runtime error: {e}");
-            self.set_fault(VmFault::LuaError);
+            if let Some(location) = budget_hit.borrow().clone() {
+                log::error!(
+                    "Lua execution budget exceeded at {}:{}",
+                    location.source,
+                    location.line
+                );
+                self.set_fault(VmFault::ExecutionBudgetExceeded);
+            } else {
+                log::error!("Lua runtime error: {e}");
+                self.set_fault(VmFault::LuaError);
+            }
         }
     }
 
-    /// Like [`Vm::run_frame_lua`], but installs a line hook that aborts
-    /// `_update()` as soon as it reaches a breakpointed source line. The
-    /// aborted call unwinds Lua's stack (mlua's hooks can't yield outside a
+    /// Like [`Vm::run_frame_lua`], but also installs a line hook that aborts
+    /// `_update()` as soon as it reaches a breakpointed source line (the
+    /// execution-budget watchdog runs here too, same as in
+    /// [`Vm::run_frame_lua`]). The aborted call unwinds Lua's stack (mlua's
+    /// hooks can't yield outside a
     /// coroutine while borrowing per-frame VM state via `Lua::scope`, so a
     /// suspend-and-resume mid-statement debugger isn't possible here) —
     /// globals and RAM at the moment of the stop are readable via
@@ -1775,23 +1839,39 @@ impl Vm {
         let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
         let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
         let locals: Rc<RefCell<Vec<RawLocal>>> = Rc::new(RefCell::new(Vec::new()));
-        // EVERY_LINE fires a Rust callback per Lua instruction executed —
-        // real overhead on any script with loops. Only pay for it when
-        // there's actually something to break on.
-        if !breakpoints.is_empty() {
+        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
+        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        {
             let hit_hook = hit.clone();
             let stack_hook = stack.clone();
             let locals_hook = locals.clone();
+            let budget_hook = budget_hit.clone();
+            let instructions_hook = instructions.clone();
             let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
-            lua.set_hook(HookTriggers::EVERY_LINE, move |lua, debug| {
+            // The execution-budget count trigger always runs; EVERY_LINE
+            // (real per-instruction overhead) is only added when there's
+            // actually something to break on.
+            let mut triggers = HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE);
+            if !bps.is_empty() {
+                triggers = triggers.every_line();
+            }
+            lua.set_hook(triggers, move |lua, debug| {
+                if debug.event() == mlua::DebugEvent::Count {
+                    let mut count = instructions_hook.borrow_mut();
+                    *count += INSTRUCTION_HOOK_STRIDE;
+                    if *count < FRAME_INSTRUCTION_BUDGET {
+                        return Ok(VmState::Continue);
+                    }
+                    let line = debug.curr_line();
+                    *budget_hook.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
+                        source: hook_debug_source(&debug),
+                        line: line as usize,
+                    });
+                    return Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE));
+                }
+
                 let line = debug.curr_line();
-                let debug_source = debug.source();
-                let source = debug_source
-                    .short_src
-                    .as_deref()
-                    .or(debug_source.source.as_deref())
-                    .map(normalized_debug_source)
-                    .unwrap_or_else(|| "cart".to_string());
+                let source = hook_debug_source(&debug);
                 let matched = (line > 0)
                     .then(|| {
                         bps.iter().find(|breakpoint| {
@@ -1872,10 +1952,20 @@ impl Vm {
             (Some(breakpoint), _) => LuaRunOutcome::Breakpoint(breakpoint),
             (None, Ok(())) => LuaRunOutcome::Completed,
             (None, Err(e)) => {
-                log::error!("Lua runtime error: {e}");
-                self.set_fault(VmFault::LuaError);
-                let (location, message) = describe_lua_error_location(&e);
-                LuaRunOutcome::Error(location, message)
+                if let Some(location) = budget_hit.borrow().clone() {
+                    log::error!(
+                        "Lua execution budget exceeded at {}:{}",
+                        location.source,
+                        location.line
+                    );
+                    self.set_fault(VmFault::ExecutionBudgetExceeded);
+                    LuaRunOutcome::Error(Some(location), EXECUTION_BUDGET_MESSAGE.to_string())
+                } else {
+                    log::error!("Lua runtime error: {e}");
+                    self.set_fault(VmFault::LuaError);
+                    let (location, message) = describe_lua_error_location(&e);
+                    LuaRunOutcome::Error(location, message)
+                }
             }
         }
     }

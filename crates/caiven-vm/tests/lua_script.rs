@@ -245,6 +245,59 @@ fn loading_fixed_source_clears_previous_lua_fault() {
 }
 
 #[test]
+fn run_frame_aborts_an_infinite_loop_instead_of_hanging() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          while true do end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // If the execution-budget watchdog didn't trip, this call would never
+    // return — that's the regression this test guards against.
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
+}
+
+#[test]
+fn run_frame_lua_bp_reports_execution_budget_exceeded_with_line() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          while true do end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    match vm.run_frame_lua_bp(&input, &font, &[]) {
+        LuaRunOutcome::Error(location, message) => {
+            let location = location.expect("watchdog trip should carry a source line");
+            assert_eq!(location.line, 3);
+            assert!(
+                message.contains("loop that never ends"),
+                "expected a plain-language watchdog message, got: {message}"
+            );
+        }
+        other => panic!("expected LuaRunOutcome::Error, got {other:?}"),
+    }
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
+}
+
+#[test]
 fn lua_run_frame_bp_stops_at_breakpointed_line() {
     let mut vm = make_vm();
     let input = Input::new();
@@ -564,9 +617,9 @@ fn expand_debug_node_truncates_large_tables() {
 #[test]
 fn lua_debug_locals_stay_empty_outside_the_breakpoint_hook_path() {
     // read_active_locals is a plain Rust fn only ever invoked from inside
-    // run_frame_lua_bp's EVERY_LINE hook — cart Lua has no registered
-    // builtin that reaches it, and plain run_frame() never wires the hook
-    // at all, so locals must never populate off that path (V8, V23).
+    // run_frame_lua_bp's breakpoint (EVERY_LINE) hook branch — plain
+    // run_frame() only wires the execution-budget count hook, which never
+    // calls it, so locals must never populate off that path (V8, V23).
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();

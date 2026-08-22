@@ -206,8 +206,9 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
 > screen, the 128×128 map, the redesigned palette, the 6 typed audio
-> voices, named banks, and the `dset`/`dget` removal have landed; the rest
-> of the hardware redesign is still pending. Target spec:
+> voices, named banks, the `dset`/`dget` removal, and the per-frame
+> execution budget watchdog have landed; the rest of the hardware redesign
+> is still pending. Target spec:
 > [design charter](product/design-charter.md) §4.
 > Change list: [hardware redesign plan](product/hardware-redesign-plan.md).
 
