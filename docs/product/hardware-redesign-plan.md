@@ -291,15 +291,45 @@ would hang forever pre-fix) and
 test's stale comment (claiming plain `run_frame()` "never wires the hook at
 all") was corrected to describe the new budget-only hook.
 
-### 2.8 Optional `w` / `h` on `sprite()`
+### 2.8 Optional `w` / `h` on `sprite()` — DONE, committed on `master`
 
-- `crates/caiven-vm/src/vm/lua_exec.rs:869` — two optional trailing args in
-  sprite units (not pixels), defaulting to 1 × 1.
-- `crates/caiven-vm/src/vm/api_registry.rs:50` and the renderer's blit loop.
-- Docs mention it only in the section where a cart outgrows one sprite.
+`sprite()` gained two optional trailing args, `w` and `h`, in sprite units
+(not pixels), defaulting to `1, 1`. `sprite_id` is the block's top-left
+sprite; the rest of the block is filled from adjacent sheet slots, row-major
+at the sheet's fixed 16-sprite width (`SPRITE_SHEET_COLS`, new constant in
+`crates/caiven-core/src/memory.rs`, matching Studio's `.sprite-sheet` CSS
+grid). This is the tooling half of the 8×8 decision: a 16×16 hero draws in
+one call while the hardware stays 8×8.
 
-This is the tooling half of the 8×8 decision: a 16×16 hero draws in one call
-while the hardware stays 8×8.
+Implementation in `crates/caiven-vm/src/vm/lua_exec.rs`'s `sprite` builtin:
+the per-pixel loop now walks a `bw × bh` source block (`bw = sprite_size *
+w`, `bh = sprite_size * h`) instead of one sprite's `ss × ss`; each source
+pixel's tile is `sprite_id + tile_row * SPRITE_SHEET_COLS + tile_col`. The
+existing rotate/flip math generalizes unchanged from the single-tile case to
+the whole block — rotate 90/270 swaps the block's output width and height,
+same as it swapped a single sprite's square before.
+
+Two argument errors, both deliberate Lua errors (not silent no-ops, matching
+the existing `rotate` argument's own error style): `w`/`h` below `1`, and a
+block that would run past the sheet edge (checked against the sheet's fixed
+16 columns × 16 rows before drawing anything, so the fault path never reads
+past the loaded bank).
+
+Fully additive — `w`/`h` are trailing optional args after the existing
+`rotate`, so every existing `sprite(id, x, y, ...)` call (including the
+prelude's `vec2.lua` sprite wrapper) is untouched. No cart-format change, no
+compat break.
+
+`api_registry.rs`'s `BUILTINS` doc entry updated to match; Studio's
+autocomplete pulls from it directly (`tauri_app.rs`), so no separate
+frontend copy to update. `docs/api-reference.md`'s `sprite()` row documents
+the new args and error behavior inline. `projects/dev/sprite_flip_rotate`
+(the existing flip/rotate demo cart) gained a `w`/`h` demo line.
+
+Tests added in `crates/caiven-vm/tests/lua_script.rs`:
+`lua_sprite_w_h_draws_adjacent_sheet_tiles` (checks the two-tile block reads
+the right sheet slots), `lua_sprite_w_h_past_sheet_edge_errors`, and
+`lua_sprite_w_h_below_one_errors`.
 
 ### 2.9 T2 module split — `collision`
 

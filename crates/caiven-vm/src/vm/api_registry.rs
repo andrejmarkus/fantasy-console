@@ -55,9 +55,11 @@ pub const BUILTINS: &[ApiEntry] = &[
             param!("flip_x": "bool?"),
             param!("flip_y": "bool?"),
             param!("rotate": "number?"),
+            param!("w": "number?"),
+            param!("h": "number?"),
         ],
         returns: "nil",
-        doc: "Draw sprite sprite_id with its top-left at (x, y), camera-relative. flip_x/flip_y mirror the sprite (default false); rotate is 0/90/180/270 degrees clockwise (default 0, any other value is a Lua error). Rotation is applied before flipping.",
+        doc: "Draw sprite sprite_id with its top-left at (x, y), camera-relative. flip_x/flip_y mirror the sprite (default false); rotate is 0/90/180/270 degrees clockwise (default 0, any other value is a Lua error). Rotation is applied before flipping. w/h are optional sizes in sprite units, not pixels (default 1, 1) — sprite_id is the block's top-left sprite and adjacent sheet slots fill the rest; a block that would run past the sheet edge, or a w/h below 1, is a Lua error.",
     },
     ApiEntry {
         name: "button_down",

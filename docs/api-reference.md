@@ -21,7 +21,7 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 
 | Function                                  | Description                                                    |
 | :----------------------------------------- | :--------------------------------------------------------------|
-| `sprite(id, x, y, flip_x, flip_y, rotate)` | Draw 8×8 sprite (camera-aware); `flip_x`/`flip_y` mirror it (default `false`), `rotate` is `0`/`90`/`180`/`270` degrees clockwise (default `0`, applied before flipping — any other value is a Lua error) |
+| `sprite(id, x, y, flip_x, flip_y, rotate, w, h)` | Draw 8×8 sprite (camera-aware); `flip_x`/`flip_y` mirror it (default `false`), `rotate` is `0`/`90`/`180`/`270` degrees clockwise (default `0`, applied before flipping — any other value is a Lua error). `w`/`h` are optional sizes in sprite units, not pixels (default `1`, `1`) — a bigger character draws in one call by covering adjacent sheet slots; a block that runs past the sheet edge, or a `w`/`h` below `1`, is a Lua error |
 | `draw_map(cell_x, cell_y, sx, sy, w, h)`  | Draw a block of the tilemap                                    |
 | `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell                                        |
 | `load_sprite_bank(name)` / `load_map_bank(name)` | Switch the sprite / map RAM window to a named bank — see [Banking](#banking) |

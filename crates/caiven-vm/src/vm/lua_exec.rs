@@ -28,7 +28,7 @@ use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
     COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
-    SPRITE_SHEET_RAM_BASE,
+    SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
@@ -892,66 +892,100 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
-        "sprite",
-        scope.create_function_mut(
-            move |_,
-                  (sprite_id, x, y, flip_x, flip_y, rotate): (
-                u8,
-                i64,
-                i64,
-                Option<bool>,
-                Option<bool>,
-                Option<i64>,
-            )| {
-                let rotate_steps = match rotate.unwrap_or(0) {
-                    0 => 0,
-                    90 => 1,
-                    180 => 2,
-                    270 => 3,
-                    other => {
-                        return Err(mlua::Error::RuntimeError(format!(
-                            "sprite: rotate must be 0, 90, 180, or 270 (got {other})"
-                        )));
-                    }
-                };
-                let flip_x = flip_x.unwrap_or(false);
-                let flip_y = flip_y.unwrap_or(false);
-
-                let base = SPRITE_SHEET_RAM_BASE + sprite_id as usize * SPRITE_BYTES;
-                let (cam_x, cam_y) = cam_offset(camera);
-                let ss = sprite_size as i64;
-                let mem = memory.borrow();
-                let mut w = world.borrow_mut();
-                for sy in 0..ss {
-                    for sx in 0..ss {
-                        let Ok(pixel) = mem.read(base + (sy * ss + sx) as usize) else {
-                            continue;
-                        };
-                        if pixel == 0 {
-                            continue;
-                        }
-                        // Rotate (clockwise) about the sprite's own square, then flip.
-                        let (mut rx, mut ry) = match rotate_steps {
-                            0 => (sx, sy),
-                            1 => (ss - 1 - sy, sx),
-                            2 => (ss - 1 - sx, ss - 1 - sy),
-                            _ => (sy, ss - 1 - sx),
-                        };
-                        if flip_x {
-                            rx = ss - 1 - rx;
-                        }
-                        if flip_y {
-                            ry = ss - 1 - ry;
-                        }
-                        let color = palette.borrow().get_color(pixel as usize);
-                        plot(&mut w, x + rx - cam_x, y + ry - cam_y, color);
-                    }
+    #[allow(clippy::type_complexity)]
+    let sprite_fn = scope.create_function_mut(
+        move |_,
+              (sprite_id, x, y, flip_x, flip_y, rotate, sw, sh): (
+            u8,
+            i64,
+            i64,
+            Option<bool>,
+            Option<bool>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+        )| {
+            let rotate_steps = match rotate.unwrap_or(0) {
+                0 => 0,
+                90 => 1,
+                180 => 2,
+                270 => 3,
+                other => {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "sprite: rotate must be 0, 90, 180, or 270 (got {other})"
+                    )));
                 }
-                Ok(())
-            },
-        )?,
+            };
+            let flip_x = flip_x.unwrap_or(false);
+            let flip_y = flip_y.unwrap_or(false);
+            let sw = sw.unwrap_or(1);
+            let sh = sh.unwrap_or(1);
+            if sw < 1 || sh < 1 {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "sprite: w and h must be at least 1 (got {sw}, {sh})"
+                )));
+            }
+            let cols = SPRITE_SHEET_COLS as i64;
+            let rows = (SPRITE_COUNT / SPRITE_SHEET_COLS) as i64;
+            let sheet_col = sprite_id as i64 % cols;
+            let sheet_row = sprite_id as i64 / cols;
+            if sheet_col + sw > cols || sheet_row + sh > rows {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "sprite: {sw}x{sh} sprites starting at {sprite_id} runs past the sheet edge"
+                )));
+            }
+
+            let (cam_x, cam_y) = cam_offset(camera);
+            let ss = sprite_size as i64;
+            // Source-space block spanning every covered sprite before rotation.
+            let bw = ss * sw;
+            let bh = ss * sh;
+            let mem = memory.borrow();
+            let mut w = world.borrow_mut();
+            for by in 0..bh {
+                for bx in 0..bw {
+                    let tile_col = bx / ss;
+                    let tile_row = by / ss;
+                    // sprite_id already encodes sheet_row/sheet_col, so offsetting by the
+                    // tile's row/col within the block lands on the right sheet slot.
+                    let tile_id = sprite_id as usize
+                        + tile_row as usize * SPRITE_SHEET_COLS
+                        + tile_col as usize;
+                    let base = SPRITE_SHEET_RAM_BASE + tile_id * SPRITE_BYTES;
+                    let sx = bx % ss;
+                    let sy = by % ss;
+                    let Ok(pixel) = mem.read(base + (sy * ss + sx) as usize) else {
+                        continue;
+                    };
+                    if pixel == 0 {
+                        continue;
+                    }
+                    // Rotate (clockwise) about the whole block, then flip.
+                    let (mut rx, mut ry) = match rotate_steps {
+                        0 => (bx, by),
+                        1 => (bh - 1 - by, bx),
+                        2 => (bw - 1 - bx, bh - 1 - by),
+                        _ => (by, bw - 1 - bx),
+                    };
+                    let (out_w, out_h) = if rotate_steps % 2 == 0 {
+                        (bw, bh)
+                    } else {
+                        (bh, bw)
+                    };
+                    if flip_x {
+                        rx = out_w - 1 - rx;
+                    }
+                    if flip_y {
+                        ry = out_h - 1 - ry;
+                    }
+                    let color = palette.borrow().get_color(pixel as usize);
+                    plot(&mut w, x + rx - cam_x, y + ry - cam_y, color);
+                }
+            }
+            Ok(())
+        },
     )?;
+    globals.set("sprite", sprite_fn)?;
 
     globals.set(
         "button_down",

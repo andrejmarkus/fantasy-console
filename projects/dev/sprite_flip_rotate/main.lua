@@ -18,4 +18,8 @@ function _draw()
   sprite(0, 20, 74, false, false, 90)
   sprite(0, 36, 74, false, false, 180)
   sprite(0, 52, 74, false, false, 270)
+
+  draw_text("w/h", 4, 94, 15)
+  -- 2x1 sprite units wide: sprite 0's tile plus sprite 1's, side by side.
+  sprite(0, 20, 94, false, false, 0, 2, 1)
 end

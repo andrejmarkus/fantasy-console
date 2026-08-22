@@ -40,6 +40,10 @@ pub const SPRITE_SIZE: u32 = 8;
 pub const SPRITE_BYTES: usize = (SPRITE_SIZE * SPRITE_SIZE) as usize;
 /// Number of sprites in the sprite sheet.
 pub const SPRITE_COUNT: usize = 256;
+/// Sprite sheet width in sprites — the sheet is laid out row-major at this
+/// stride, so adjacent sprite ids sit side by side (matches Studio's sprite
+/// picker grid, `.sprite-sheet` in `studio.css`).
+pub const SPRITE_SHEET_COLS: usize = 16;
 /// Number of palette slots.
 pub const PALETTE_SIZE: usize = 16;
 

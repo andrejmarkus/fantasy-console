@@ -1939,6 +1939,72 @@ fn lua_sprite_invalid_rotate_errors() {
     assert!(vm.get_fault().is_some(), "expected a fault for rotate=45");
 }
 
+/// Fills sprite `id`'s whole 8x8 block with one palette color.
+fn poke_solid_sprite(vm: &mut Vm, id: u8, color: u8) {
+    let base = SPRITE_SHEET_RAM_BASE + id as usize * 64;
+    for i in 0..64usize {
+        vm.poke_memory(base + i, color);
+    }
+}
+
+#[test]
+fn lua_sprite_w_h_draws_adjacent_sheet_tiles() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    // Sheet is 16 wide, so sprites 0 and 1 sit side by side.
+    poke_solid_sprite(&mut vm, 0, 8);
+    poke_solid_sprite(&mut vm, 1, 9);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, false, false, 0, 2, 1) end",
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    assert_eq!(read_rgba(&vm, 10, 10), slot_rgba(8));
+    assert_eq!(read_rgba(&vm, 17, 10), slot_rgba(8));
+    assert_eq!(read_rgba(&vm, 18, 10), slot_rgba(9));
+    assert_eq!(read_rgba(&vm, 25, 10), slot_rgba(9));
+}
+
+#[test]
+fn lua_sprite_w_h_past_sheet_edge_errors() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_solid_sprite(&mut vm, 15, 8);
+    // Sprite 15 is the last column of its sheet row; w=2 would run off the edge.
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(15, 10, 10, false, false, 0, 2, 1) end",
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert!(
+        vm.get_fault().is_some(),
+        "expected a fault for a block past the sheet edge"
+    );
+}
+
+#[test]
+fn lua_sprite_w_h_below_one_errors() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_solid_sprite(&mut vm, 0, 8);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, false, false, 0, 0, 1) end",
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert!(vm.get_fault().is_some(), "expected a fault for w=0");
+}
+
 #[test]
 fn prelude_vec2_operators() {
     let got = run_and_get(
