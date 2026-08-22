@@ -70,7 +70,27 @@ export function filledRectangle(from: number, to: number, width: number): number
   return cells;
 }
 
-export type StrokeTool = 'pencil' | 'line' | 'rect' | 'fill' | 'erase';
+/** Just the border cells of the rectangle {@link filledRectangle} would fill —
+ *  PICO-8's rect/rectb pairing, so a wall or panel outline doesn't need a
+ *  fill-then-erase-the-middle workaround. */
+export function rectangleOutline(from: number, to: number, width: number): number[] {
+  const x0 = from % width, y0 = Math.floor(from / width);
+  const x1 = to % width, y1 = Math.floor(to / width);
+  const left = Math.min(x0, x1), right = Math.max(x0, x1);
+  const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+  const cells: number[] = [];
+  for (let x = left; x <= right; x += 1) {
+    cells.push(top * width + x);
+    if (bottom !== top) cells.push(bottom * width + x);
+  }
+  for (let y = top + 1; y < bottom; y += 1) {
+    cells.push(y * width + left);
+    if (right !== left) cells.push(y * width + right);
+  }
+  return cells;
+}
+
+export type StrokeTool = 'pencil' | 'line' | 'rect' | 'rect-outline' | 'fill' | 'erase' | 'autotile';
 
 export function strokeCells(
   tool: StrokeTool,
@@ -84,12 +104,15 @@ export function strokeCells(
 ): number[] {
   switch (tool) {
     case 'pencil':
+    case 'autotile':
     case 'erase':
       return rasterLine(previous ?? current, current, width);
     case 'line':
       return rasterLine(anchor, current, width);
     case 'rect':
       return filledRectangle(anchor, current, width);
+    case 'rect-outline':
+      return rectangleOutline(anchor, current, width);
     case 'fill':
       return floodCells(values, current, replacement, width, height).map((cell) => cell.offset);
     default:
@@ -130,6 +153,26 @@ export function pasteRegion(
     edits.push({ index: y * width + x, value: patch[dy * w + dx] ?? 0 });
   }
   return edits;
+}
+
+/** Relocates a w×h region from (x0,y0) to (nx0,ny0) in a width×height grid.
+ *  Vacated cells the destination doesn't itself cover are cleared to 0, so an
+ *  overlapping move never leaves a stray copy behind. */
+export function moveRegion(
+  values: readonly number[], x0: number, y0: number, w: number, h: number,
+  nx0: number, ny0: number, width: number, height: number,
+): { index: number; value: number }[] {
+  const patch = regionValues(values, { x0, y0, w, h }, width);
+  const clears = pasteRegion(x0, y0, w, h, new Array(w * h).fill(0), width, height)
+    .filter(({ index }) => {
+      const ex = index % width, ey = Math.floor(index / width);
+      return ex < nx0 || ex >= nx0 + w || ey < ny0 || ey >= ny0 + h;
+    });
+  const places = pasteRegion(nx0, ny0, w, h, patch, width, height);
+  const merged = new Map<number, number>();
+  for (const { index, value } of clears) merged.set(index, value);
+  for (const { index, value } of places) merged.set(index, value);
+  return [...merged].map(([index, value]) => ({ index, value }));
 }
 
 export function flipHorizontal(values: readonly number[], width: number, height: number): number[] {
@@ -201,6 +244,65 @@ export function decomposeGroup(
     out.push({ slot, pixels: slotPixels });
   }
   return out;
+}
+
+/** A terrain family is 16 consecutive tile ids, `base..base+15` (`base` is
+ *  always a multiple of 16 — the sheet's own convention, not stored state).
+ *  Tile 0 never belongs to any family: it's the map's "nothing here" value. */
+function terrainBase(tile: number): number {
+  return Math.floor(tile / 16) * 16;
+}
+
+function sameTerrain(tile: number, base: number): boolean {
+  return tile !== 0 && tile >= base && tile < base + 16;
+}
+
+/** Cardinal-neighbor bitmask (1=N, 2=E, 4=S, 8=W) for whether each side's
+ *  neighbor belongs to the same terrain family as `base`. The tile that
+ *  belongs at `offset` is `base + autotileBitmask(...)` — the sheet must lay
+ *  its 16 edge/corner variants out in that order for the family to read. */
+export function autotileBitmask(
+  tiles: readonly number[], offset: number, base: number, width: number, height: number,
+): number {
+  const x = offset % width, y = Math.floor(offset / width);
+  const belongs = (nx: number, ny: number) => {
+    if (nx < 0 || ny < 0 || nx >= width || ny >= height) return false;
+    return sameTerrain(tiles[ny * width + nx] ?? 0, base);
+  };
+  let mask = 0;
+  if (belongs(x, y - 1)) mask |= 1;
+  if (belongs(x + 1, y)) mask |= 2;
+  if (belongs(x, y + 1)) mask |= 4;
+  if (belongs(x - 1, y)) mask |= 8;
+  return mask;
+}
+
+/** Recomputes autotile variants around a set of just-painted seed cells: the
+ *  seeds themselves plus their 4 neighbors, so placing one tile also fixes
+ *  the edges of whatever it now touches. Only touches cells that already
+ *  belong to the painted tile's own terrain family — a neighboring, unrelated
+ *  terrain is left alone. */
+export function autotileEdits(
+  tiles: readonly number[], seeds: readonly number[], width: number, height: number,
+): MapCell[] {
+  const affected = new Set<number>();
+  for (const seed of seeds) {
+    affected.add(seed);
+    const x = seed % width, y = Math.floor(seed / width);
+    if (y > 0) affected.add(seed - width);
+    if (y + 1 < height) affected.add(seed + width);
+    if (x > 0) affected.add(seed - 1);
+    if (x + 1 < width) affected.add(seed + 1);
+  }
+  const edits: MapCell[] = [];
+  for (const offset of affected) {
+    const tile = tiles[offset] ?? 0;
+    if (tile === 0) continue;
+    const base = terrainBase(tile);
+    const next = base + autotileBitmask(tiles, offset, base, width, height);
+    if (next !== tile) edits.push({ offset, tile: next });
+  }
+  return edits;
 }
 
 export function floodCells(

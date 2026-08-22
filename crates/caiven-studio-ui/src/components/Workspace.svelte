@@ -2,10 +2,10 @@
   import { flushSync, onDestroy } from 'svelte';
   import {
     Image, Layers, Pipette, Volume2, Music, FileCode2, FileImage,
-    Plus, Pencil, PaintBucket, Minus, Square, Undo2, Redo2, Eraser, ShieldCheck,
+    Plus, Pencil, PaintBucket, Minus, Square, SquareDashed, Undo2, Redo2, Eraser, ShieldCheck,
     FlipHorizontal, FlipVertical, RotateCw, RotateCcw, Trash2, Search, FolderOpen, Play,
-    ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
-    UserRound, Globe, Gamepad2, Grid3X3, BoxSelect,
+    ExternalLink, Sparkles, ArrowRight, ArrowUp, ArrowDown, ArrowLeft, CircleCheck, ChevronRight, X,
+    UserRound, Globe, Gamepad2, Grid3X3, BoxSelect, Puzzle,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -16,8 +16,8 @@
     EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
-    composeGroup, decomposeGroup, dragPanScroll, flipHorizontal, flipVertical, MAP_ZOOM_LEVELS, nextMapZoom,
-    pasteRegion, regionValues, rotateClockwise, rotateCounterClockwise,
+    autotileEdits, composeGroup, decomposeGroup, dragPanScroll, flipHorizontal, flipVertical, MAP_ZOOM_LEVELS,
+    moveRegion, nextMapZoom, pasteRegion, regionValues, rotateClockwise, rotateCounterClockwise,
     type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryState } from '../lib/history';
@@ -33,7 +33,7 @@
   /** Music channel timbres, fixed by column. Mirrors `audio::MUSIC_VOICE_KINDS`. */
   const MUSIC_CHANNEL_LABELS = ['Pulse 1', 'Pulse 2', 'Triangle', 'Noise'];
 
-  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'rect-outline' | 'pick' | 'erase' | 'line' | 'select' | 'autotile';
   type MapRegion = { x0: number; y0: number; w: number; h: number };
 
   interface Props {
@@ -273,6 +273,7 @@
     mapTool = 'pencil';
     collisionBrush = 1;
     mapStamp = null;
+    mapStampLibrary = [];
     mapSelection = null;
     mapClipboard = null;
     spriteGroup = { w: 1, h: 1 };
@@ -459,6 +460,13 @@
   function commitMap(cells: { offset: number; tile: number }[]) {
     const latest = new globalThis.Map<number, number>();
     for (const cell of cells) latest.set(cell.offset, cell.tile);
+    if (mapTool === 'autotile') {
+      // The stroke already wrote the picked tile at each seed cell; recompute
+      // that cell and its neighbors' edge variants against the post-stroke map.
+      const projected = [...map];
+      for (const [offset, tile] of latest) projected[offset] = tile;
+      for (const auto of autotileEdits(projected, [...latest.keys()], MAP_W, MAP_H)) latest.set(auto.offset, auto.tile);
+    }
     const edit = [...latest].map(([offset, after]) => ({ offset, before: map[offset] ?? 0, after }))
       .filter((cell) => cell.before !== cell.after);
     if (!edit.length) return;
@@ -610,6 +618,65 @@
     // pencil with a multi-tile mapStamp means the next click/drag places it.
     mapStamp = mapClipboard;
     mapTool = 'pencil';
+  }
+
+  // Drops the clipboard straight into the current selection's top-left corner,
+  // one commit, no click needed — the alternative to pasteClipboard's
+  // click-to-place stamp when the destination is the active marquee itself.
+  function pasteInPlace() {
+    if (!mapClipboard || !mapSelection) return;
+    const edits = pasteRegion(mapSelection.x0, mapSelection.y0, mapClipboard.w, mapClipboard.h, mapClipboard.tiles, MAP_W, MAP_H);
+    commitMap(edits.map(({ index, value }) => ({ offset: index, tile: value })));
+  }
+
+  function transformMapSelection(kind: 'flip' | 'vflip' | 'rotate' | 'rotate-ccw') {
+    if (!mapSelection) return;
+    const { x0, y0, w, h } = mapSelection;
+    const values = regionValues(map, mapSelection, MAP_W);
+    let next: number[];
+    if (kind === 'flip') next = flipHorizontal(values, w, h);
+    else if (kind === 'vflip') next = flipVertical(values, w, h);
+    else if (w !== h) return; // rotate needs a square selection — see SpriteCanvas's same rule
+    else next = kind === 'rotate' ? rotateClockwise(values, w, h) : rotateCounterClockwise(values, w, h);
+    const edits = pasteRegion(x0, y0, w, h, next, MAP_W, MAP_H);
+    commitMap(edits.map(({ index, value }) => ({ offset: index, tile: value })));
+  }
+
+  // Nudges the selection's content by one tile; the selection itself follows,
+  // so repeated clicks walk it across the map. No-ops rather than clipping at
+  // the map edge — a partial move would silently drop tiles off the far side.
+  function moveMapSelection(dx: number, dy: number) {
+    if (!mapSelection) return;
+    const { x0, y0, w, h } = mapSelection;
+    const nx0 = x0 + dx, ny0 = y0 + dy;
+    if (nx0 < 0 || ny0 < 0 || nx0 + w > MAP_W || ny0 + h > MAP_H) return;
+    const edits = moveRegion(map, x0, y0, w, h, nx0, ny0, MAP_W, MAP_H);
+    commitMap(edits.map(({ index, value }) => ({ offset: index, tile: value })));
+    mapSelection = { x0: nx0, y0: ny0, w, h };
+  }
+
+  // Named, reusable multi-tile stamps — saved from either the tile picker's
+  // current pick or the active map selection, kept for the session (not part
+  // of the cart; see the plan doc for why this stays session-local for now).
+  let mapStampLibrary = $state<{ name: string; w: number; h: number; tiles: number[] }[]>([]);
+
+  function saveStampAs() {
+    const source = mapStamp ?? (mapSelection ? { w: mapSelection.w, h: mapSelection.h, tiles: regionTiles(mapSelection) } : null);
+    if (!source) return;
+    const name = window.prompt('Name this stamp:', `stamp_${mapStampLibrary.length + 1}`)?.trim();
+    if (!name) return;
+    mapStampLibrary = [...mapStampLibrary.filter((entry) => entry.name !== name), { name, ...source }];
+  }
+
+  function loadStamp(name: string) {
+    const found = mapStampLibrary.find((entry) => entry.name === name);
+    if (!found) return;
+    mapStamp = { w: found.w, h: found.h, tiles: found.tiles };
+    mapTool = 'pencil';
+  }
+
+  function deleteStamp(name: string) {
+    mapStampLibrary = mapStampLibrary.filter((entry) => entry.name !== name);
   }
 
   function handleMapWheel(event: WheelEvent) {
@@ -1108,6 +1175,7 @@
       const key = event.key.toLowerCase();
       if (key === 'c' && mapSelection) { event.preventDefault(); copySelection(); return; }
       if (key === 'x' && mapSelection) { event.preventDefault(); cutSelection(); return; }
+      if (key === 'v' && event.shiftKey && mapClipboard && mapSelection) { event.preventDefault(); pasteInPlace(); return; }
       if (key === 'v' && mapClipboard) { event.preventDefault(); pasteClipboard(); return; }
     }
     if ((event.metaKey || event.ctrlKey) && screen === 'sprites' && !isTypingTarget(event.target)) {
@@ -1391,6 +1459,16 @@
           <button class:active={mapTool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => mapTool = item.id as MapTool}><Icon size={18} /></button>
         {/each}
         <button
+          class:active={mapTool === 'rect-outline'}
+          title="Rectangle outline — border only, no fill"
+          onclick={() => mapTool = 'rect-outline'}
+        ><SquareDashed size={18} /></button>
+        <button
+          class:active={mapTool === 'autotile'}
+          title="Autotile — paints a terrain tile and matches its edges to its neighbors automatically"
+          onclick={() => mapTool = 'autotile'}
+        ><Puzzle size={18} /></button>
+        <button
           class:active={mapTool === 'select'}
           title="Select — marquee a region, then Ctrl+C/X to copy/cut, Ctrl+V to place"
           onclick={() => mapTool = 'select'}
@@ -1484,15 +1562,57 @@
             <p>Per cell — painting only changes the cells under the brush, independent of which sprite tile they show.</p>
           </div>
         {/if}
+        {#if mapTool === 'autotile'}
+          <div class="collision-edit-note">
+            <span class="eyebrow"><Puzzle size={13} />Autotile</span>
+            <strong>Paints tile {selectedTile.toString().padStart(3, '0')}'s terrain</strong>
+            <p>Placing or removing a tile updates its edges and its neighbors' — the sheet's next 15 tiles after this terrain's first must be its edge/corner variants.</p>
+          </div>
+        {/if}
         {#if mapTool === 'select'}
           <div class="collision-edit-note">
             <span class="eyebrow"><BoxSelect size={13} />Region select</span>
             <strong>{mapSelection ? `${mapSelection.w} × ${mapSelection.h} selected` : 'Drag to select a region'}</strong>
             <p>Ctrl+C copy · Ctrl+X cut · Ctrl+V places the clipboard as a stamp — click or drag to drop it.</p>
+            {#if mapSelection}
+              <div class="selection-ops">
+                <button title="Paste in place (Ctrl+Shift+V)" disabled={!mapClipboard} onclick={pasteInPlace}>Paste in place</button>
+                <button title="Flip horizontally" onclick={() => transformMapSelection('flip')}><FlipHorizontal size={14} /></button>
+                <button title="Flip vertically" onclick={() => transformMapSelection('vflip')}><FlipVertical size={14} /></button>
+                <button
+                  title={mapSelection.w === mapSelection.h ? 'Rotate clockwise' : 'Rotate needs a square selection'}
+                  disabled={mapSelection.w !== mapSelection.h}
+                  onclick={() => transformMapSelection('rotate')}
+                ><RotateCw size={14} /></button>
+                <button
+                  title={mapSelection.w === mapSelection.h ? 'Rotate counter-clockwise' : 'Rotate needs a square selection'}
+                  disabled={mapSelection.w !== mapSelection.h}
+                  onclick={() => transformMapSelection('rotate-ccw')}
+                ><RotateCcw size={14} /></button>
+                <button title="Move up" onclick={() => moveMapSelection(0, -1)}><ArrowUp size={14} /></button>
+                <button title="Move down" onclick={() => moveMapSelection(0, 1)}><ArrowDown size={14} /></button>
+                <button title="Move left" onclick={() => moveMapSelection(-1, 0)}><ArrowLeft size={14} /></button>
+                <button title="Move right" onclick={() => moveMapSelection(1, 0)}><ArrowRight size={14} /></button>
+                <button title="Save this selection as a named stamp" onclick={saveStampAs}>Save as stamp…</button>
+              </div>
+            {/if}
           </div>
         {/if}
         <span class="eyebrow">Tile picker</span>
         <p class="map-note subtle">Drag across the sheet to pick a multi-tile stamp.</p>
+        {#if mapStamp}
+          <button class="stamp-save" onclick={saveStampAs}>Save current stamp…</button>
+        {/if}
+        {#if mapStampLibrary.length}
+          <div class="stamp-library" aria-label="Saved stamps">
+            {#each mapStampLibrary as entry (entry.name)}
+              <span class="stamp-chip">
+                <button title={`${entry.name} — ${entry.w} × ${entry.h}`} onclick={() => loadStamp(entry.name)}>{entry.name}</button>
+                <button title={`Delete ${entry.name}`} aria-label={`Delete ${entry.name}`} onclick={() => deleteStamp(entry.name)}><X size={11} /></button>
+              </span>
+            {/each}
+          </div>
+        {/if}
         <div
           class="tile-picker"
           bind:this={pickerEl}

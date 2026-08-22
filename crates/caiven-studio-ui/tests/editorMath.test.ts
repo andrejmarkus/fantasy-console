@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  collisionCellEdits, composeGroup, decomposeGroup, dragPanScroll, filledRectangle, flipHorizontal, flipVertical,
-  floodCells, nextMapZoom, pasteRegion, rasterLine, regionFromPoints, regionValues, rotateClockwise,
-  rotateCounterClockwise, sourceOffset, strokeCells,
+  autotileBitmask, autotileEdits, collisionCellEdits, composeGroup, decomposeGroup, dragPanScroll, filledRectangle,
+  flipHorizontal, flipVertical, floodCells, moveRegion, nextMapZoom, pasteRegion, rasterLine, rectangleOutline,
+  regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise, sourceOffset, strokeCells,
 } from '../src/lib/editorMath.ts';
 
 test('rasterLine bridges skipped pointer cells', () => {
@@ -105,6 +105,42 @@ test('rotateClockwise and rotateCounterClockwise are inverses on a square grid',
   const cw = rotateClockwise(grid, 2, 2);
   assert.deepEqual(cw, [3, 1, 4, 2]);
   assert.deepEqual(rotateCounterClockwise(cw, 2, 2), grid);
+});
+
+test('rectangleOutline traces only the border of the box filledRectangle would fill', () => {
+  const outline = rectangleOutline(0, 12, 5); // 3x3 box, width 5
+  assert.deepEqual(outline.slice().sort((a, b) => a - b), [0, 1, 2, 5, 7, 10, 11, 12]);
+  // Center cell (1,1) = offset 6 is excluded — that's the whole point of "outline".
+  assert.ok(!outline.includes(6));
+});
+
+test('moveRegion relocates a region and clears the part of the source the destination does not cover', () => {
+  const grid = [1, 2, 3, 4, 5, 6, 7, 8, 9]; // 3x3
+  assert.deepEqual(moveRegion(grid, 0, 0, 1, 1, 1, 0, 3, 3), [{ index: 0, value: 0 }, { index: 1, value: 1 }]);
+});
+
+test('moveRegion does not clear cells the overlapping destination itself writes', () => {
+  const grid = [1, 2, 3, 4]; // 1x4 row
+  assert.deepEqual(
+    moveRegion(grid, 0, 0, 2, 1, 1, 0, 4, 1),
+    [{ index: 0, value: 0 }, { index: 1, value: 1 }, { index: 2, value: 2 }],
+  );
+});
+
+test('autotileBitmask sets one bit per same-terrain cardinal neighbor', () => {
+  const tiles = [0, 20, 0, 0, 16, 21, 0, 0, 0]; // 3x3; base 16 terrain at offset 4
+  assert.equal(autotileBitmask(tiles, 4, 16, 3, 3), 1 | 2); // N (20) and E (21) belong; S, W don't
+});
+
+test('autotileEdits recomputes the painted cell and its same-terrain neighbors, ignoring tile 0', () => {
+  const projected = [16, 16, 0]; // 1x3 row, seed painted at offset 1
+  const edits = autotileEdits(projected, [1], 3, 1).sort((a, b) => a.offset - b.offset);
+  assert.deepEqual(edits, [{ offset: 0, tile: 16 + 2 }, { offset: 1, tile: 16 + 8 }]);
+});
+
+test('autotileEdits leaves an unrelated terrain family untouched', () => {
+  const projected = [16, 32]; // adjacent but different 16-wide families
+  assert.deepEqual(autotileEdits(projected, [0, 1], 2, 1), []);
 });
 
 test('composeGroup/decomposeGroup round-trip a multi-slot sprite-sheet block', () => {

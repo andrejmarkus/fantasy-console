@@ -438,10 +438,75 @@ adjacent 8×8 slots, zoom, vertical flip, counter-clockwise rotate.
   left over from before 2.2's map resize to 128×128) that blocked running
   it at all.
 
-### 3.2 Map autotile and selection ops
+### 3.2 Map autotile and selection ops — **done**
 
-Terrain/autotile brushes, reusable named stamps, in-place paste, move/rotate/
-flip a selection, rectangle outline.
+`MapCanvas.svelte` and `Workspace.svelte`'s map screen. Was missing: terrain/
+autotile brushes, reusable named stamps, in-place paste, move/rotate/flip a
+selection, rectangle outline.
+
+- **Rectangle outline.** `editorMath.ts` gained `rectangleOutline` (border
+  cells of the box `filledRectangle` would fill — PICO-8's rect/rectb split)
+  and a `'rect-outline'` entry on `StrokeTool`/`MapTool`, wired into
+  `MapCanvas.svelte` exactly like `'rect'` (live preview rebuilt from anchor
+  each move). A new toolbar button sits next to the existing tools.
+- **Terrain/autotile.** A terrain is a convention, not stored state: 16
+  consecutive tile ids `base..base+15` (`base` a multiple of 16), and tile 0
+  never belongs to any family — it's the map's "nothing here" value, so a
+  terrain can't start at id 0-15's own base without losing its "isolated"
+  variant; the in-editor hint says so. `editorMath.ts` gained
+  `autotileBitmask` (cardinal N/E/S/W same-family neighbor bits) and
+  `autotileEdits` (recomputes a just-painted seed cell and its neighbors'
+  variants, touching only cells already in that seed's terrain family — an
+  adjacent unrelated terrain is left alone). The new `'autotile'` tool paints
+  like pencil (`strokeCells` bridges it identically), and `Workspace.svelte`'s
+  `commitMap` runs `autotileEdits` over the post-stroke map before building
+  the history entry, so painting and its neighbor recompute land as one
+  atomic undo step. Only active for the `'autotile'` tool — the plain eraser
+  does not re-run neighbor recompute, a known, documented limitation rather
+  than an attempt to guess a painter's intent from tool-agnostic edits.
+- **Move / rotate / flip a selection.** Reuses the sprite editor's own
+  transform helpers (`flipHorizontal`/`flipVertical`/`rotateClockwise`/
+  `rotateCounterClockwise`, already generic over width/height from 3.1) via a
+  new `transformMapSelection` in `Workspace.svelte`, applied to
+  `mapSelection`'s region and written back with `pasteRegion`. Rotate is
+  disabled when the selection isn't square, same rule and same reasoning as
+  3.1's sprite-group rotate. Move is four nudge buttons (arrow icons), not a
+  canvas drag — `editorMath.ts`'s new `moveRegion` relocates a region and
+  clears only the vacated cells the destination doesn't itself cover (so an
+  overlapping move never leaves a stray copy), and the selection follows the
+  moved content so repeated clicks walk it across the map.
+- **In-place paste.** `pasteInPlace` (Ctrl+Shift+V, or a toolbar button)
+  writes the clipboard straight into the current selection's top-left corner
+  in one commit — no click-to-place needed, the alternative to the existing
+  click-to-place stamp paste from 3a when the destination is the active
+  marquee itself.
+- **Reusable named stamps.** A `mapStampLibrary` list in `Workspace.svelte`,
+  session-local (not part of the cart) — the current stamp or selection can
+  be saved under a name (`window.prompt`, mirroring 2.5's bank-naming
+  pattern) and reloaded or deleted from a small chip list under the tile
+  picker. Kept session-local rather than plumbed through a new cart section:
+  the plan item doesn't call for surviving a restart, and giving stamps cart
+  persistence would need its own named-bank-style diff (new section kind,
+  Tauri commands, format version bump) disproportionate to what "reusable"
+  asks for here.
+- Purely additive to the map-editor UI and the `editorMath.ts` surface; no
+  cart format, save format, or Lua API change, so no compatibility note is
+  needed.
+- Tests: 7 new `editorMath.test.ts` cases cover `rectangleOutline`,
+  `moveRegion` (including an overlapping move), `autotileBitmask`, and
+  `autotileEdits` (including that an unrelated terrain family is left
+  alone). A `studio.spec.ts` case extends the existing art/map flow: pick a
+  terrain tile (id 17 — outside the reserved 0-15 block), paint two adjacent
+  cells with the autotile tool and assert the resulting variants via
+  `e2e.snapshot()`; paint and verify a rectangle outline's border-vs-interior
+  cells; marquee-select the outline, flip, rotate, nudge, paste-in-place, and
+  save/reload it as a named stamp. Found along the way: `dialog.accept()`
+  with no argument submits an *empty string*, not the native prompt's
+  default value — the test passes `dialog.defaultValue()` explicitly. This
+  also means the pre-existing, already-broken `banking.spec.ts` "Create
+  bank" step (no dialog handler at all, one of the 8 failures pre-dating
+  this item) would still be broken by this fact alone even once its earlier,
+  unrelated assertion is fixed — left alone, out of scope for this item.
 
 ### 3.3 Music / SFX gaps
 

@@ -142,6 +142,54 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByRole('button', { name: 'Collision', exact: true }).click();
   await page.locator('.collision-type-picker select').selectOption({ label: 'solid' });
   await page.getByRole('button', { name: '100%', exact: true }).click();
+  await page.getByRole('button', { name: 'Tiles', exact: true }).click();
+
+  // Autotile: pick a terrain tile (id 17 — outside the reserved 0-15 block, see
+  // editorMath's terrainBase) and paint two adjacent cells. The second cell's
+  // placement recomputes the first cell's edge variant to include its new neighbor.
+  await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 1.5 } });
+  await page.getByTitle(/^Autotile/).click();
+  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  const mapBox = (await mapCanvas.boundingBox())!;
+  const cellW = mapBox.width / 128, cellH = mapBox.height / 128;
+  await page.mouse.move(mapBox.x + cellW * 5.5, mapBox.y + cellH * 5.5);
+  await page.mouse.down();
+  await page.mouse.move(mapBox.x + cellW * 5.5, mapBox.y + cellH * 6.5);
+  await page.mouse.up();
+  let mapSnap = (await e2e.snapshot()) as any;
+  expect(mapSnap.banks.map['0'][5 * 128 + 5]).toBe(20); // south-connected variant
+  expect(mapSnap.banks.map['0'][6 * 128 + 5]).toBe(17); // north-connected variant
+
+  // Rectangle outline: border only, the interior stays untouched.
+  await page.getByTitle(/^Rectangle outline/).click();
+  await page.mouse.move(mapBox.x + cellW * 20.5, mapBox.y + cellH * 20.5);
+  await page.mouse.down();
+  await page.mouse.move(mapBox.x + cellW * 23.5, mapBox.y + cellH * 23.5);
+  await page.mouse.up();
+  mapSnap = (await e2e.snapshot()) as any;
+  expect(mapSnap.banks.map['0'][20 * 128 + 20]).toBe(17);
+  expect(mapSnap.banks.map['0'][21 * 128 + 21]).toBe(0);
+
+  // Select the box just outlined: flip, rotate, nudge, paste-in-place, save as a stamp.
+  await page.getByTitle(/^Select/).click();
+  await page.mouse.move(mapBox.x + cellW * 20.5, mapBox.y + cellH * 20.5);
+  await page.mouse.down();
+  await page.mouse.move(mapBox.x + cellW * 23.5, mapBox.y + cellH * 23.5);
+  await page.mouse.up();
+  await expect(page.getByText('4 × 4 selected')).toBeVisible();
+  await page.keyboard.press('Control+c');
+  await page.getByTitle('Flip horizontally').click();
+  await page.getByTitle('Rotate clockwise').click();
+  await page.getByTitle('Move right').click();
+  await page.getByTitle('Paste in place (Ctrl+Shift+V)').click();
+
+  // dialog.accept() with no argument submits an empty string, not the prompt's
+  // default value — pass it explicitly to accept "stamp_1" as offered.
+  page.once('dialog', (dialog) => dialog.accept(dialog.defaultValue()));
+  await page.getByTitle('Save this selection as a named stamp').click();
+  await expect(page.getByRole('button', { name: 'stamp_1', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'stamp_1', exact: true }).click();
+  await expect(page.getByTitle('Pencil (p)')).toHaveClass(/active/);
 
   await page.getByRole('button', { name: 'Palette', exact: true }).click();
   const hex = page.getByLabel('Hex');

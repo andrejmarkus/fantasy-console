@@ -9,7 +9,7 @@
   import type { CollisionType } from '../types';
 
   type MapLayer = 'tiles' | 'collision';
-  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'rect-outline' | 'pick' | 'erase' | 'line' | 'select' | 'autotile';
   type Cell = { offset: number; tile: number };
 
   interface Stamp { w: number; h: number; tiles: number[]; }
@@ -274,9 +274,10 @@
     const values = layer === 'tiles' ? map : collisionValues();
     const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
     const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, MAP_W, MAP_H);
-    // line/rect recompute the whole shape from anchor each move (live preview), so the
-    // draft is replaced rather than accumulated; paint/erase/fill accumulate across a drag.
-    if (tool === 'line' || tool === 'rect') {
+    // line/rect/rect-outline recompute the whole shape from anchor each move (live
+    // preview), so the draft is replaced rather than accumulated; paint/erase/fill/
+    // autotile accumulate across a drag.
+    if (tool === 'line' || tool === 'rect' || tool === 'rect-outline') {
       tileDraft = new Map();
       collisionDraft = new Map();
       collisionWorking = null; // the discarded preview is still in the working copy
@@ -339,10 +340,10 @@
     // held, but WKWebView doesn't actually composite/flush the canvas to screen again until
     // the native tracking loop ends — confirmed by comparing a scheduled render (invisible
     // for the whole drag) against a synchronous one (paints every move) in the same build.
-    if (tool === 'rect' || tool === 'line') {
+    if (tool === 'rect' || tool === 'rect-outline' || tool === 'line') {
       drawStroke(at);
       renderStroke();
-    } else if ((tool === 'pencil' || tool === 'erase') && previousCell !== at) {
+    } else if ((tool === 'pencil' || tool === 'erase' || tool === 'autotile') && previousCell !== at) {
       drawStroke(at);
       previousCell = at;
       renderStroke();

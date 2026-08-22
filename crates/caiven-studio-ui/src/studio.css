@@ -593,6 +593,18 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .inspector-row { height: 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); color: var(--color-ink-dim); }
 .inspector-row code { color: var(--color-ink); font-size: 10.5px; }
 .map-note { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); color: var(--color-ink-faint); font-size: 10.5px; line-height: 1.5; }
+.selection-ops { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.selection-ops button { height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--color-ink-dim); background: var(--color-void-800); font-size: 10px; }
+.selection-ops button:hover:not(:disabled) { color: var(--color-ink); background: var(--color-void-700); }
+.selection-ops button:disabled { opacity: .35; cursor: default; }
+.stamp-save { width: 100%; height: 26px; margin-top: 8px; border: 1px dashed var(--border-subtle); border-radius: 6px; color: var(--color-ink-dim); background: transparent; font-size: 10px; }
+.stamp-save:hover { color: var(--color-ink); border-color: var(--color-ember); }
+.stamp-library { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+.stamp-chip { display: inline-flex; align-items: center; border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; }
+.stamp-chip button:first-child { height: 24px; padding: 0 8px; border: 0; color: var(--color-ink-dim); background: var(--color-void-800); font-size: 10px; font-family: var(--font-mono); }
+.stamp-chip button:first-child:hover { color: var(--color-ink); background: var(--color-void-700); }
+.stamp-chip button:last-child { width: 20px; height: 24px; display: grid; place-items: center; border: 0; border-left: 1px solid var(--border-subtle); color: var(--color-ink-faint); background: var(--color-void-800); }
+.stamp-chip button:last-child:hover { color: var(--destructive); }
 
 /* Shared undo/redo pair for editors whose toolbar isn't a .tool-rail (palette,
    sfx, music screens). Same visual language as .tool-rail button, inline. */
