@@ -331,18 +331,57 @@ Tests added in `crates/caiven-vm/tests/lua_script.rs`:
 the right sheet slots), `lua_sprite_w_h_past_sheet_edge_errors`, and
 `lua_sprite_w_h_below_one_errors`.
 
-### 2.9 T2 module split — `collision`
+### 2.9 T2 module split — `collision` — DONE, committed on `master`
 
-Charter Appendix A: `collision.lua` is 147 lines, the only breach of the
+Charter Appendix A: `collision.lua` was 147 lines, the only breach of the
 readable-lesson cap, caused by `move_and_collide` and its slope solver
 (lines 80-147).
 
-- Keep the 6 predicates in `collision.lua` (~30 lines).
-- Move the swept-movement solver to its own opt-in module.
-- Update `caiven.toml` module lists, the api-reference stdlib tables, and any
-  showcase cart that calls `move_and_collide`.
+Split, not cut. `crates/caiven-vm/src/vm/prelude/collision.lua` now keeps the
+6 predicates only — `aabb_overlap`, `circle_overlap`, `point_in_rect`,
+`point_in_circle`, `tile_solid`, `box_touches_solid` — 38 lines. The
+swept-movement solver (`move_and_collide` plus its local helpers
+`solid_blocks_column`, `solid_blocks_row`, `slope_floor_y`) moved verbatim
+into a new `crates/caiven-vm/src/vm/prelude/movement.lua`, 108 lines (roughly
+at the cap, per the charter's "roughly ≤ 100"). Neither file's logic
+changed — this is an organizational split, not a rewrite.
 
-Split, do not cut, and do not raise the cap.
+`crates/caiven-vm/src/vm/lua_exec.rs`'s `PRELUDE_MODULES` gained a
+`"movement"` entry (`globals: &["move_and_collide"]`) right after
+`"collision"`, whose own `globals` list dropped `"move_and_collide"`. A cart
+that wants swept movement now declares `"movement"` in `[stdlib] modules`
+alongside (or instead of) `"collision"`.
+
+Breaking change, deliberately not migrated (nothing is in production): any
+cart declaring `[stdlib] modules = ["collision", ...]` and calling
+`move_and_collide` must add `"movement"` to that list, or the call resolves
+to Lua `nil` and errors on first use — the standard "missing module" failure
+mode already documented for every other `[stdlib]` entry, not a new error
+path. Updated `caiven.toml` for the two carts that call it:
+`projects/dev/platformer_demo` and `projects/showcase/platformer` (both
+add `"movement"` next to `"collision"`), and `projects/dev/stdlib_all_modules`
+(declares every module, so it gained `"movement"` too). Neither project ships
+a packed `.cav`, so no rebuild step was needed.
+
+`docs/api-reference.md`'s Gameplay stdlib section gained a `### movement`
+table entry with `move_and_collide`'s row, moved out of the `### collision`
+table. Studio's autocomplete pulls prelude module/global lists live from
+`lua_exec::prelude_module_globals()` (via `prelude_entry_module` in
+`api_registry.rs`), so no separate frontend source of truth needed updating
+there — but two hardcoded browser-preview mocks of the same shape existed
+(`crates/caiven-studio-ui/src/lib/ipc.ts`'s `preludeModules` fallback, and
+its e2e-test twin in `crates/caiven-studio-ui/e2e/fixtures.ts`) and both
+needed a `"movement"` entry added by hand — the "frontend copies of console
+constants drift silently" trap from 2.3, present here too.
+
+Tests: `crates/caiven-vm/tests/lua_script.rs`'s shared `make_vm()` test
+helper (opts every cart into every module) gained `"movement"`, so the six
+existing `move_and_collide_*` tests kept passing unmodified against the
+split. New `collision_and_movement_are_split_modules` test in
+`crates/caiven-vm/tests/prelude_modules.rs` asserts each module exposes only
+its own globals when declared alone (`collision` alone: `aabb_overlap`
+defined, `move_and_collide` nil; `movement` alone: the reverse) — the
+regression that would catch the split ever partially reverting.
 
 ## Phase 3 — editors (Clock A)
 

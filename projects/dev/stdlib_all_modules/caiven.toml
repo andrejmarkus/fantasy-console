@@ -13,6 +13,7 @@ require = []
 modules = [
     "vec2",
     "collision",
+    "movement",
     "tween",
     "particles",
     "scenes",

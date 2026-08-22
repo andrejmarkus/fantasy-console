@@ -200,26 +200,29 @@ Measured from `crates/caiven-vm/src/vm/prelude/*.lua`, not estimated.
 | `camera` | 56 | PASS |
 | `entities` | 57 | PASS |
 | `vec2` | 86 | PASS |
-| `collision` | **147** | **OVER CAP** |
+| `collision` | 38 | PASS (post-split) |
+| `movement` | 108 | PASS (post-split, roughly at the cap) |
 
-`collision.lua` is the only breach, and one function causes it:
-`move_and_collide` runs from line 80 to the end, carrying the slope solver
+`collision.lua` was originally 147 lines and the only breach, caused by one
+function: `move_and_collide`, carrying its slope solver
 (`solid_blocks_column`, `solid_blocks_row`, `slope_floor_y`) with it. The rest
 of the module — `aabb_overlap`, `circle_overlap`, `point_in_rect`,
-`point_in_circle`, `tile_solid`, `box_touches_solid` — is 6 short predicates in
-about 30 lines and is exemplary T2.
+`point_in_circle`, `tile_solid`, `box_touches_solid` — was 6 short predicates
+in about 30 lines and already exemplary T2.
 
-Proposed verdict: **split, do not cut.** Keep the predicates in `collision`, and
-move the swept-movement solver into its own module. Both halves then read in one
-sitting, and a cart that only needs `aabb_overlap` stops paying for the slope
-math. Deciding the split is Phase 2 work; no module is edited by this charter.
+**Split, not cut** — done in Phase 2 item 2.9. `collision.lua` kept the 6
+predicates (38 lines); the swept-movement solver moved into its own
+`movement` module, declared separately in `caiven.toml`. Both halves now read
+in one sitting, and a cart that only needs `aabb_overlap` stops paying for
+the slope math.
 
 ## Appendix B — status
 
 The hardware table in §4 is **target state**. The 192 × 128 screen (item 2.1),
 the 128 × 128 map (item 2.2), the redesigned palette (item 2.3), the six
 typed audio voices (item 2.4), named banks (item 2.5), the `dset`/`dget`
-removal (item 2.6), the per-frame execution budget watchdog (item 2.7), and
-optional `w`/`h` sprite-unit args on `sprite()` (item 2.8) have landed. The
-redesign lands phase by phase; the charter is what those phases are steering
-toward, and is authoritative in any disagreement with the code.
+removal (item 2.6), the per-frame execution budget watchdog (item 2.7),
+optional `w`/`h` sprite-unit args on `sprite()` (item 2.8), and the
+`collision`/`movement` module split (item 2.9) have landed. The redesign
+lands phase by phase; the charter is what those phases are steering toward,
+and is authoritative in any disagreement with the code.

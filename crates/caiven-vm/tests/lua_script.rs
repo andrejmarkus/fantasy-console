@@ -22,6 +22,7 @@ fn make_vm() -> Vm {
     vm.set_prelude_modules(&[
         "vec2",
         "collision",
+        "movement",
         "tween",
         "particles",
         "scenes",

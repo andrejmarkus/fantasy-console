@@ -181,6 +181,7 @@ const fallback: StudioBootstrap = {
   preludeModules: [
     { name: 'vec2', globals: ['Vec2', 'Sprite'], enabled: false },
     { name: 'collision', globals: ['aabb_overlap', 'circle_overlap', 'point_in_rect', 'point_in_circle', 'tile_solid', 'box_touches_solid'], enabled: false },
+    { name: 'movement', globals: ['move_and_collide'], enabled: false },
     { name: 'tween', globals: ['new_tween', 'tween_update', 'new_anim', 'anim_update', 'anim_sprite'], enabled: false },
     { name: 'particles', globals: ['Particles'], enabled: false },
     { name: 'scenes', globals: ['Scenes'], enabled: false },

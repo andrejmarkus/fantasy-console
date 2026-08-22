@@ -168,7 +168,12 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)` | Point containment tests                                           |
 | `tile_solid(tx, ty)`                                                       | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
 | `box_touches_solid(x, y, w, h)`                                            | Whether a pixel-space box overlaps any solid tile                 |
-| `move_and_collide(x, y, w, h, dx, dy)`                                     | Axis-separated swept move against SOLID (both axes), ONE_WAY (vertical, landing only when descending from above), and slope tiles (vertical, per-column floor sampling); returns `nx, ny, touch = {ground, ceiling, left, right}` |
+
+### `movement` — swept move + collision resolve
+
+| Function                                                    | Description                                                    |
+| :-------------------------------------------------------------| :----------------------------------------------------------|
+| `move_and_collide(x, y, w, h, dx, dy)`                     | Axis-separated swept move against SOLID (both axes), ONE_WAY (vertical, landing only when descending from above), and slope tiles (vertical, per-column floor sampling); returns `nx, ny, touch = {ground, ceiling, left, right}` |
 
 ### `tween` — value tweens and sprite animation
 

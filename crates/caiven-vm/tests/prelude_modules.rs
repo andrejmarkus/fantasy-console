@@ -71,6 +71,39 @@ fn declaring_a_module_exposes_exactly_its_globals() {
 }
 
 #[test]
+fn collision_and_movement_are_split_modules() {
+    let mut vm = make_vm();
+    vm.set_prelude_modules(&["collision"])
+        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        assert(aabb_overlap ~= nil, "aabb_overlap should be defined by the collision module")
+        assert(move_and_collide == nil, "move_and_collide should stay nil, only collision was declared")
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("assertions failed: {e}"));
+
+    let mut vm = make_vm();
+    vm.set_prelude_modules(&["movement"])
+        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
+    vm.load_lua_source(
+        r#"
+        assert(move_and_collide ~= nil, "move_and_collide should be defined by the movement module")
+        assert(aabb_overlap == nil, "aabb_overlap should stay nil, only movement was declared")
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("assertions failed: {e}"));
+}
+
+#[test]
 fn unknown_module_name_errors_with_the_name() {
     let mut vm = make_vm();
     let err = vm

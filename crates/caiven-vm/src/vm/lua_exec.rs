@@ -173,9 +173,9 @@ struct PreludeModule {
     globals: &'static [&'static str],
 }
 
-/// Opt-in gameplay-facing stdlib (Vec2/Sprite, AABB/tile collision, tweens,
-/// particles, Scenes, Entities, Camera). Loaded in this order after
-/// [`PRELUDE_CORE`] and before the cart's own source.
+/// Opt-in gameplay-facing stdlib (Vec2/Sprite, AABB/tile collision, swept
+/// movement, tweens, particles, Scenes, Entities, Camera). Loaded in this
+/// order after [`PRELUDE_CORE`] and before the cart's own source.
 const PRELUDE_MODULES: &[PreludeModule] = &[
     PreludeModule {
         name: "vec2",
@@ -192,8 +192,12 @@ const PRELUDE_MODULES: &[PreludeModule] = &[
             "point_in_circle",
             "tile_solid",
             "box_touches_solid",
-            "move_and_collide",
         ],
+    },
+    PreludeModule {
+        name: "movement",
+        source: include_str!("prelude/movement.lua"),
+        globals: &["move_and_collide"],
     },
     PreludeModule {
         name: "tween",
