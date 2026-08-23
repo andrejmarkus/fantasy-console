@@ -246,6 +246,73 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   expect(commands).toEqual(expect.arrayContaining(['studio_write_sprite', 'studio_write_map_cells', 'studio_write_palette', 'studio_write_memory', 'studio_audio_transport']));
 });
 
+test('sprite and map canvases paint from the keyboard (3.4 keyboard-first editing)', async ({ page, e2e }) => {
+  await page.getByTitle(/^Art/).click();
+  await page.getByLabel('Color 8').click();
+  const spriteGrid = page.getByLabel('8 by 8 sprite grid');
+  // Focus programmatically rather than via a click — the canvas's own pointerdown
+  // handler calls preventDefault(), which can suppress the browser's default
+  // click-to-focus behavior, so this is the reliable way to grant it keyboard focus.
+  await spriteGrid.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const spriteSnap = (await e2e.snapshot()) as any;
+  expect(spriteSnap.banks.sprites['0'][1 * 8 + 1]).toBe(8);
+
+  await page.getByRole('button', { name: 'Map', exact: true }).click();
+  const tilePicker = page.getByLabel(/^Tile picker/);
+  const pickerBox = await tilePicker.boundingBox();
+  await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
+  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  await mapCanvas.focus();
+  const before = ((await e2e.snapshot()) as any).banks.map['0'][1 * 128 + 1];
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const mapSnap = (await e2e.snapshot()) as any;
+  expect(mapSnap.banks.map['0'][1 * 128 + 1]).not.toBe(before);
+});
+
+test('map canvas keyboard rect stroke: anchor, extend, commit — and Escape cancels mid-stroke', async ({ page, e2e }) => {
+  await page.getByTitle(/^Art/).click();
+  await page.getByRole('button', { name: 'Map', exact: true }).click();
+  const tilePicker = page.getByLabel(/^Tile picker/);
+  const pickerBox = await tilePicker.boundingBox();
+  await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
+  await page.getByTitle('Rectangle (r)').click();
+  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  await mapCanvas.focus();
+
+  // Move the keyboard cursor from (0,0) to (10,10) and anchor a rect stroke there.
+  for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+
+  // Extend the live preview to (12,12), then cancel — nothing should commit.
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  let snap = (await e2e.snapshot()) as any;
+  expect(snap.banks.map['0'][10 * 128 + 10]).toBe(0);
+  expect(snap.banks.map['0'][12 * 128 + 12]).toBe(0);
+
+  // Re-anchor at (10,10) (cursor is still at (12,12) from before the cancel),
+  // extend to (12,12) again, and commit this time — a filled 3x3 rectangle.
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowLeft');
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  snap = (await e2e.snapshot()) as any;
+  const tile = snap.banks.map['0'][10 * 128 + 10];
+  expect(tile).not.toBe(0);
+  expect(snap.banks.map['0'][11 * 128 + 11]).toBe(tile); // interior of the fill
+  expect(snap.banks.map['0'][12 * 128 + 12]).toBe(tile); // far corner
+  expect(snap.banks.map['0'][9 * 128 + 9]).toBe(0); // outside the rect, untouched
+});
+
 test('project, library, Port account, download, and publish flow', async ({ page, e2e }) => {
   await page.getByTitle(/^Cart/).click();
   await expect(page.getByRole('heading', { name: 'Cart details' })).toBeVisible();

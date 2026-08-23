@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import {
-    collisionCellEdits, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
+    collisionCellEdits, moveCursor, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
   } from '../lib/editorMath';
   import {
     MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, SCREEN_TILES_H, SCREEN_TILES_W, TILE_SIZE,
@@ -53,6 +53,12 @@
   let renderFrame: number | undefined;
   let selectAnchor = $state<number | null>(null);
   let selectCurrent = $state<number | null>(null);
+  /** Flat tile offset the keyboard operates on; independent of pointer state. */
+  let cursor = $state(0);
+  /** Non-null while a keyboard-initiated stroke/select is in progress — mirrors
+   *  a held mouse button, so arrow keys live-preview the same way a drag does. */
+  let kbAnchor: number | null = $state(null);
+  let focused = $state(false);
   const selectRegion = $derived.by((): MapRegion | null => {
     if (selectAnchor === null || selectCurrent === null) return null;
     const ax = selectAnchor % MAP_W, ay = Math.floor(selectAnchor / MAP_W);
@@ -294,12 +300,8 @@
     onCollisionPick(collisionTypes.some((t) => t.id === value) ? value : 0);
   }
 
-  function begin(event: PointerEvent) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const at = pointerCell(event);
-    reportHover(event);
-    if (event.ctrlKey || tool === 'pick') {
+  function beginAt(at: number, options: { pick: boolean }) {
+    if (options.pick || tool === 'pick') {
       pick(at);
       return;
     }
@@ -307,7 +309,6 @@
       selectAnchor = at;
       selectCurrent = at;
       drawing = true;
-      canvas.setPointerCapture(event.pointerId);
       return;
     }
     tileDraft = new Map();
@@ -318,19 +319,16 @@
     drawing = true;
     if (tool === 'fill') {
       drawStroke(at);
-      finish(event);
+      finishAt();
       return;
     }
-    canvas.setPointerCapture(event.pointerId);
     paintedCells = new Set();
     drawStroke(at);
-    renderStroke(); // paint inline — see move() for why this can't wait for scheduleRender()
+    renderStroke(); // paint inline — see moveAt() for why this can't wait for scheduleRender()
   }
 
-  function move(event: PointerEvent) {
-    reportHover(event);
+  function moveAt(at: number) {
     if (!drawing) return;
-    const at = pointerCell(event);
     if (tool === 'select') {
       selectCurrent = at;
       return;
@@ -350,7 +348,7 @@
     }
   }
 
-  function finish(event?: PointerEvent) {
+  function finishAt() {
     if (!drawing) return;
     drawing = false;
     const cells = [...tileDraft].map(([offset, tile]) => ({ offset, tile }));
@@ -363,7 +361,74 @@
     collisionWorking = null;
     anchor = null;
     previousCell = null;
+  }
+
+  function begin(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const at = pointerCell(event);
+    reportHover(event);
+    beginAt(at, { pick: event.ctrlKey });
+    if (tool === 'select' || drawing) canvas.setPointerCapture(event.pointerId);
+  }
+
+  function move(event: PointerEvent) {
+    reportHover(event);
+    moveAt(pointerCell(event));
+  }
+
+  function finish(event?: PointerEvent) {
+    finishAt();
     if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  }
+
+  const KB_STROKE_TOOLS: MapTool[] = ['line', 'rect', 'rect-outline', 'select'];
+
+  function handleKey(event: KeyboardEvent) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+      const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+      cursor = moveCursor(cursor, dx, dy, MAP_W, MAP_H);
+      if (kbAnchor !== null) moveAt(cursor);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (tool === 'pick') {
+        pick(cursor);
+        return;
+      }
+      if (KB_STROKE_TOOLS.includes(tool)) {
+        if (kbAnchor === null) {
+          kbAnchor = cursor;
+          beginAt(cursor, { pick: false });
+        } else {
+          finishAt();
+          kbAnchor = null;
+        }
+        return;
+      }
+      beginAt(cursor, { pick: false });
+      finishAt();
+      return;
+    }
+    if (event.key === 'Escape' && kbAnchor !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      tileDraft = new Map();
+      collisionDraft = new Map();
+      collisionWorking = null;
+      paintedCells = new Set();
+      kbAnchor = null;
+      drawing = false;
+      anchor = null;
+      previousCell = null;
+      if (tool === 'select') { selectAnchor = null; selectCurrent = null; }
+    }
   }
 </script>
 
@@ -380,6 +445,7 @@
     class:erasing={tool === 'erase'}
     width={MAP_PX_W}
     height={MAP_PX_H}
+    tabindex="0"
     aria-label={`${MAP_W} by ${MAP_H} tile map`}
     onpointerdown={begin}
     onpointermove={move}
@@ -387,6 +453,9 @@
     onpointercancel={finish}
     onlostpointercapture={finish}
     onpointerleave={() => onHover?.(null)}
+    onkeydown={handleKey}
+    onfocus={() => focused = true}
+    onblur={() => focused = false}
     oncontextmenu={(event) => event.preventDefault()}
   ></canvas>
   <div class="map-grid-overlay" aria-hidden="true"></div>
@@ -406,6 +475,13 @@
       class="map-selection"
       aria-hidden="true"
       style={`left:${(selectRegion.x0 / MAP_W) * 100}%; top:${(selectRegion.y0 / MAP_H) * 100}%; width:${(selectRegion.w / MAP_W) * 100}%; height:${(selectRegion.h / MAP_H) * 100}%`}
+    ></div>
+  {/if}
+  {#if focused}
+    <div
+      class="map-cursor"
+      aria-hidden="true"
+      style={`left:${((cursor % MAP_W) / MAP_W) * 100}%; top:${(Math.floor(cursor / MAP_W) / MAP_H) * 100}%; width:${(1 / MAP_W) * 100}%; height:${(1 / MAP_H) * 100}%`}
     ></div>
   {/if}
 </div>
@@ -431,4 +507,5 @@
   .map-screen-region span { position: absolute; left: 3px; top: 3px; color: var(--color-ember); font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
   .screen-label { position: absolute; padding: 2px 3px; color: rgba(245,242,242,.55); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; pointer-events: none; }
   .map-selection { position: absolute; border: 1px dashed var(--color-ember); background: rgba(254,176,93,.12); pointer-events: none; }
+  .map-cursor { position: absolute; outline: 2px solid var(--color-sheen-bright); outline-offset: -2px; pointer-events: none; }
 </style>

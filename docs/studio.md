@@ -24,6 +24,13 @@ wide windows and 3× at the minimum supported 1280×800 size. The bottom drawer
 holds Problems, Output, and Memory. Focus mode expands the framebuffer
 without moving the VM into JavaScript.
 
+The sprite and map canvases (Art → Sprites, Art → Map) are fully keyboard-
+operable once focused: arrow keys move a cell cursor, Enter or Space paints
+(pencil/erase/fill/autotile) or anchors and commits a stroke (line/rect/
+rectangle outline/select — press again to commit, matching a mouse
+drag-release), and Escape cancels an in-progress keyboard stroke without
+committing it.
+
 Run native Studio with live Vite reload:
 
 ```bash

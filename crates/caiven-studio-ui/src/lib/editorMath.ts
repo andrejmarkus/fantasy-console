@@ -120,6 +120,13 @@ export function strokeCells(
   }
 }
 
+/** Moves a flat grid offset by (dx,dy), clamped to stay inside width×height. */
+export function moveCursor(at: number, dx: number, dy: number, width: number, height: number): number {
+  const x = Math.max(0, Math.min(width - 1, (at % width) + dx));
+  const y = Math.max(0, Math.min(height - 1, Math.floor(at / width) + dy));
+  return y * width + x;
+}
+
 export interface PixelRegion { x0: number; y0: number; w: number; h: number; }
 
 /** Marquee rectangle from two grid indices (any drag direction), for the

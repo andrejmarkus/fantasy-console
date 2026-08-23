@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { regionFromPoints, strokeCells, type PixelRegion, type StrokeTool } from '../lib/editorMath';
+  import { moveCursor, regionFromPoints, strokeCells, type PixelRegion, type StrokeTool } from '../lib/editorMath';
 
   export type SpriteTool = StrokeTool | 'pick' | 'select';
   export type Pixel = { index: number; color: number };
@@ -38,6 +38,12 @@
   let renderFrame: number | undefined;
   let selectAnchor = $state<number | null>(null);
   let selectCurrent = $state<number | null>(null);
+  /** Flat pixel offset the keyboard operates on; independent of pointer state. */
+  let cursor = $state(0);
+  /** Non-null while a keyboard-initiated stroke/select is in progress — mirrors
+   *  a held mouse button, so arrow keys live-preview the same way a drag does. */
+  let kbAnchor: number | null = $state(null);
+  let focused = $state(false);
   const selectRegion = $derived.by((): PixelRegion | null => {
     if (selectAnchor === null || selectCurrent === null) return null;
     return regionFromPoints(selectAnchor, selectCurrent, width);
@@ -49,6 +55,11 @@
 
   $effect(() => {
     onSelectionChange?.(selectRegion);
+  });
+
+  // Group size (cols/rows) can change out from under a stale cursor — clamp it back on-grid.
+  $effect(() => {
+    if (cursor >= width * height) cursor = 0;
   });
 
   function color(hex: string): [number, number, number, number] {
@@ -117,11 +128,8 @@
     onPick(sprite[at] ?? 0);
   }
 
-  function begin(event: PointerEvent) {
-    if (event.button !== 0 && event.button !== 2) return;
-    event.preventDefault();
-    const at = pointerPixel(event);
-    if (event.button === 2 || event.ctrlKey || tool === 'pick') {
+  function beginAt(at: number, options: { pick: boolean }) {
+    if (options.pick || tool === 'pick') {
       pick(at);
       return;
     }
@@ -129,7 +137,6 @@
       selectAnchor = at;
       selectCurrent = at;
       drawing = true;
-      canvas.setPointerCapture(event.pointerId);
       return;
     }
     draft = new Map();
@@ -138,17 +145,15 @@
     drawing = true;
     if (tool === 'fill') {
       applyStroke(at);
-      finish(event);
+      finishAt();
       return;
     }
-    canvas.setPointerCapture(event.pointerId);
     applyStroke(at);
-    render(); // paint inline — see move() for why this can't wait for scheduleRender()
+    render(); // paint inline — see moveAt() for why this can't wait for scheduleRender()
   }
 
-  function move(event: PointerEvent) {
+  function moveAt(at: number) {
     if (!drawing) return;
-    const at = pointerPixel(event);
     if (tool === 'select') {
       selectCurrent = at;
       return;
@@ -168,7 +173,7 @@
     }
   }
 
-  function finish(event?: PointerEvent) {
+  function finishAt() {
     if (!drawing) return;
     drawing = false;
     if (tool !== 'select') {
@@ -178,7 +183,69 @@
     }
     anchor = null;
     previousPixel = null;
+  }
+
+  function begin(event: PointerEvent) {
+    if (event.button !== 0 && event.button !== 2) return;
+    event.preventDefault();
+    const at = pointerPixel(event);
+    beginAt(at, { pick: event.button === 2 || event.ctrlKey });
+    if (tool === 'select' || drawing) canvas.setPointerCapture(event.pointerId);
+  }
+
+  function move(event: PointerEvent) {
+    moveAt(pointerPixel(event));
+  }
+
+  function finish(event?: PointerEvent) {
+    finishAt();
     if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  }
+
+  const KB_STROKE_TOOLS: SpriteTool[] = ['line', 'rect', 'rect-outline', 'select'];
+
+  function handleKey(event: KeyboardEvent) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+      const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+      cursor = moveCursor(cursor, dx, dy, width, height);
+      if (kbAnchor !== null) moveAt(cursor);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (tool === 'pick') {
+        pick(cursor);
+        return;
+      }
+      if (KB_STROKE_TOOLS.includes(tool)) {
+        if (kbAnchor === null) {
+          kbAnchor = cursor;
+          beginAt(cursor, { pick: false });
+        } else {
+          finishAt();
+          kbAnchor = null;
+        }
+        return;
+      }
+      beginAt(cursor, { pick: false });
+      finishAt();
+      return;
+    }
+    if (event.key === 'Escape' && kbAnchor !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      draft = new Map();
+      kbAnchor = null;
+      drawing = false;
+      anchor = null;
+      previousPixel = null;
+      if (tool === 'select') { selectAnchor = null; selectCurrent = null; }
+    }
   }
 </script>
 
@@ -195,12 +262,16 @@
       class:erasing={tool === 'erase'}
       width={width * CELL}
       height={height * CELL}
+      tabindex="0"
       aria-label={`${width} by ${height} sprite grid`}
       onpointerdown={begin}
       onpointermove={move}
       onpointerup={finish}
       onpointercancel={finish}
       onlostpointercapture={finish}
+      onkeydown={handleKey}
+      onfocus={() => focused = true}
+      onblur={() => focused = false}
       oncontextmenu={(event) => event.preventDefault()}
     ></canvas>
     <div class="sprite-grid-overlay" aria-hidden="true"></div>
@@ -212,6 +283,13 @@
         class="sprite-selection"
         aria-hidden="true"
         style={`left:${(selectRegion.x0 / width) * 100}%; top:${(selectRegion.y0 / height) * 100}%; width:${(selectRegion.w / width) * 100}%; height:${(selectRegion.h / height) * 100}%`}
+      ></div>
+    {/if}
+    {#if focused}
+      <div
+        class="sprite-cursor"
+        aria-hidden="true"
+        style={`left:${((cursor % width) / width) * 100}%; top:${(Math.floor(cursor / width) / height) * 100}%; width:${(1 / width) * 100}%; height:${(1 / height) * 100}%`}
       ></div>
     {/if}
   </div>
@@ -244,4 +322,5 @@
     background-size: calc(100% / var(--sprite-cols)) 100%, 100% calc(100% / var(--sprite-rows));
   }
   .sprite-selection { position: absolute; border: 1px dashed var(--color-ember); background: rgba(254,176,93,.12); pointer-events: none; }
+  .sprite-cursor { position: absolute; outline: 2px solid var(--color-sheen-bright); outline-offset: -2px; pointer-events: none; }
 </style>

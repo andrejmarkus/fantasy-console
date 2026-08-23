@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   autotileBitmask, autotileEdits, collisionCellEdits, composeGroup, decomposeGroup, dragPanScroll, filledRectangle,
-  flipHorizontal, flipVertical, floodCells, moveRegion, nextMapZoom, pasteRegion, rasterLine, rectangleOutline,
-  regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise, sourceOffset, strokeCells,
+  flipHorizontal, flipVertical, floodCells, moveCursor, moveRegion, nextMapZoom, pasteRegion, rasterLine,
+  rectangleOutline, regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise, sourceOffset,
+  strokeCells,
 } from '../src/lib/editorMath.ts';
 
 test('rasterLine bridges skipped pointer cells', () => {
@@ -76,6 +77,24 @@ test('strokeCells: fill floods from current using values/replacement, ignoring a
     strokeCells('fill', 99, 0, null, map, 7, 3, 3).sort((a, b) => a - b),
     [0, 1, 3, 6, 7],
   );
+});
+
+test('moveCursor steps within bounds on a 3x3 grid', () => {
+  assert.equal(moveCursor(4, 1, 0, 3, 3), 5); // (1,1) -> (2,1)
+  assert.equal(moveCursor(4, -1, 0, 3, 3), 3); // (1,1) -> (0,1)
+  assert.equal(moveCursor(4, 0, 1, 3, 3), 7); // (1,1) -> (1,2)
+  assert.equal(moveCursor(4, 0, -1, 3, 3), 1); // (1,1) -> (1,0)
+});
+
+test('moveCursor clamps at each edge instead of wrapping', () => {
+  assert.equal(moveCursor(0, -1, 0, 3, 3), 0); // already at left edge
+  assert.equal(moveCursor(2, 1, 0, 3, 3), 2); // already at right edge
+  assert.equal(moveCursor(0, 0, -1, 3, 3), 0); // already at top edge
+  assert.equal(moveCursor(6, 0, 1, 3, 3), 6); // already at bottom edge
+});
+
+test('moveCursor is a no-op exactly at a boundary in the boundary direction', () => {
+  assert.equal(moveCursor(8, 1, 1, 3, 3), 8); // bottom-right corner, pushed further out
 });
 
 test('regionFromPoints normalizes either drag direction into x0/y0/w/h', () => {
