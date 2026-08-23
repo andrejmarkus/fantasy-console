@@ -404,7 +404,7 @@
 
   const assetSummary = $derived([
     { label: 'Sprites', icon: Image, value: `${assetStats[0]?.used ?? 0}`, pct: ((assetStats[0]?.used ?? 0) / 256) * 100, detail: 'of 256 slots' },
-    { label: 'Map tiles', icon: Layers, value: `${[...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)}`, pct: (([...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)) / 4096) * 100, detail: 'of 4 096 cells' },
+    { label: 'Map tiles', icon: Layers, value: `${[...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)}`, pct: (([...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)) / (MAP_W * MAP_H)) * 100, detail: `of ${(MAP_W * MAP_H).toLocaleString()} cells` },
     { label: 'Sound effects', icon: Volume2, value: `${assetStats[1]?.used ?? 0}`, pct: ((assetStats[1]?.used ?? 0) / 16) * 100, detail: 'of 16 slots' },
     { label: 'Cart size', icon: Sparkles, value: `${(cartSize.packedBytes / 1024).toFixed(1)} KiB`, pct: cartPercent, detail: `of ${cartSize.maxBytes / 1024} KiB budget` },
   ]);
