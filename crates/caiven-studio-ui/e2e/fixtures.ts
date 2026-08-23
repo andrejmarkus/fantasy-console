@@ -29,8 +29,10 @@ function installBridge() {
   }
 
   type Kind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
-  const lengths: Record<Kind, number> = { sprites: 16384, map: 4096, palette: 48, sfx: 1024, music: 256 };
-  const offsets: Record<Kind, number> = { sprites: 0x4000, map: 0x8000, palette: 0x9100, sfx: 0x9200, music: 0x9600 };
+  const lengths: Record<Kind, number> = { sprites: 16384, map: 4096, palette: 48, sfx: 1024, music: 545 };
+  // Must match `MEMORY` in src/lib/ipc.ts, or a writeMemory from an editor
+  // lands nowhere and the next bank refresh silently reverts the edit.
+  const offsets: Record<Kind, number> = { sprites: 0x4000, map: 0x8000, palette: 0xC000, sfx: 0xC100, music: 0xC500 };
   const calls: { command: string; args: Record<string, unknown> }[] = [];
   const faults = new Map<string, string[]>();
   const delays = new Map<string, number[]>();
@@ -257,7 +259,7 @@ function installBridge() {
     if (command === 'studio_export_web') return null;
     if (command === 'studio_export_screenshot') return null;
     if (command === 'studio_export_source_zip') return null;
-    if (command === 'studio_audio_transport') return { ...audio(), [`${String(args.kind)}Active`]: args.action === 'play', [`${String(args.kind)}${args.kind === 'sfx' ? 'Id' : 'Pattern'}`]: Number(args.id) };
+    if (command === 'studio_audio_transport') return { ...audio(), [`${String(args.kind)}Active`]: args.action !== 'stop', [`${String(args.kind)}${args.kind === 'sfx' ? 'Id' : 'Pattern'}`]: Number(args.id) };
     if (command === 'studio_scan_library') return [{ path: '/library/moon', name: 'moon', title: 'Moon', author: 'tester', modified: 1, project: true }];
     if (command === 'studio_list_examples') return [
       { id: 'movement', name: 'Movement', description: 'Smallest possible playable cart: one sprite, arrow keys' },

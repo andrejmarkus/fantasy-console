@@ -68,8 +68,9 @@ returns `false` rather than erroring.
 | `play_sfx(id, opts)`     | Start SFX `id` on a free (or, if all are busy, oldest) voice. `opts.volume` (0-1, default 1) is optional. Returns a handle. Polyphonic — concurrent calls get independent voices. |
 | `stop_sfx(handle)`       | Stop the voice `handle` refers to. Silent no-op if it already finished or was reused.                                                                   |
 | `is_sfx_playing(handle)` | True if `handle` refers to a voice still actively playing. Stale handle returns `false`, not an error.                                                  |
-| `play_music(id)`         | Play a music track, looping                                                                                                                              |
-| `stop_music()`           | Stop music                                                                                                                                                |
+| `play_music(id)`         | Play a music track, looping. `id` is clamped into range. Cancels song playback if one is running.                                                        |
+| `play_music_song(start_step)` | Play the bank's song order table from `start_step` (optional, default `0`), chaining patterns and honoring the loop point. `start_step` is clamped; a song with nothing to play is a silent no-op. |
+| `stop_music()`           | Stop music (single-pattern or song)                                                                                                                       |
 | `is_music_playing()`     | True while a music track is playing.                                                                                                                     |
 | `set_master_volume(v)`   | Runtime-only output multiplier, `v` clamped to `[0, 1]`                                                                                                  |
 | `set_music_volume(v)`    | Runtime-only music-channel multiplier, `v` clamped to `[0, 1]`                                                                                           |
@@ -262,6 +263,14 @@ column — pulse 1, pulse 2, triangle, noise — so "which channel is that?" is
 answered by ear. A channel plays the referenced SFX's notes and volumes; the
 SFX's own wave byte is ignored there, because the column already decided it.
 
+Patterns are chained into a song by the order table that follows the pattern
+data in the same bank: 32 one-byte steps, each holding `pattern id + 1` so
+`0` (and any value above the pattern count) means "nothing here". One more
+byte after the table holds the loop point as `step + 1`, with `0` meaning
+"no loop — stop when the song runs out". `play_music_song` walks this table;
+`play_music` ignores it and loops one pattern. A bank written before songs
+existed reads as all zeros here, so it simply has no song.
+
 The two remaining voices are reserved for `play_sfx`. Nothing a cart plays
 through them can silence a music channel: a jump sound landing on a busy
 frame steals the older sound effect, never the melody. More than two
@@ -276,7 +285,7 @@ concurrent sound effects steal the least recently started one.
 | `0x8000–0xBFFF` | Tilemap 128×128 (1 byte/cell)                                  |
 | `0xC000–0xC0FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
 | `0xC100–0xC4FF` | SFX bank (16 × 64 bytes)                                       |
-| `0xC500–0xC6FF` | Music bank (8 patterns × 16 rows × 4 channels, 1 byte/cell)     |
-| `0xC700–0xC702` | RTC (hour, minute, second)                                     |
-| `0xC703–0x10702` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0x10703–0x17FFF` | Reserved                                                     |
+| `0xC500–0xC7FF` | Music bank (8 patterns × 16 rows × 4 channels, 1 byte/cell), then the 32-byte song order table and its loop-point byte |
+| `0xC800–0xC802` | RTC (hour, minute, second)                                     |
+| `0xC803–0x10802` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0x10803–0x17FFF` | Reserved                                                     |

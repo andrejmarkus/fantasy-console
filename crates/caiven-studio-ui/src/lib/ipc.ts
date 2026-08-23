@@ -1,5 +1,5 @@
 import type {
-  ApiEntry, AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, DebugChild, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  ApiEntry, AssetBankState, AssetIndex, AudioAction, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, DebugChild, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
   PreludeModule, PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -70,7 +70,7 @@ export const defaultSprite = [
 
 export const MEMORY = {
   sprites: 0x4000, map: 0x8000,
-  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC703,
+  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC803,
 } as const;
 
 /** Sprite sheet shape. Mirrors `caiven_core::memory::SPRITE_COUNT`/`SPRITE_SHEET_COLS`. */
@@ -100,8 +100,18 @@ export const SFX_BANK_LEN = 16 * 64;
 export const MUSIC_PATTERN_COUNT = 8;
 export const MUSIC_PATTERN_ROWS = 16;
 export const MUSIC_CHANNEL_COUNT = 4;
-/** Music bank byte length — one byte per channel per row. */
-export const MUSIC_BANK_LEN = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+/** Song order steps per bank. Mirrors `caiven_core::memory::MUSIC_ORDER_STEPS`. */
+export const MUSIC_ORDER_STEPS = 32;
+/** Song section byte length: order table plus loop-point byte. Mirrors
+ * `caiven_core::memory::MUSIC_SONG_LEN`. */
+export const MUSIC_SONG_LEN = MUSIC_ORDER_STEPS + 1;
+/** Byte offset of the song order table within a music bank. */
+export const MUSIC_ORDER_OFFSET = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+/** Byte offset of the loop-point byte within a music bank. */
+export const MUSIC_LOOP_POINT_OFFSET = MUSIC_ORDER_OFFSET + MUSIC_ORDER_STEPS;
+/** Music bank byte length — one byte per channel per row, then the song section. */
+export const MUSIC_BANK_LEN =
+  MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT + MUSIC_SONG_LEN;
 /** Bytes one pattern occupies — the tracker's stride between patterns. */
 export const MUSIC_PATTERN_LEN = MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
 
@@ -434,7 +444,7 @@ export async function closeProject(): Promise<StudioBootstrap> {
 }
 
 export async function audioTransport(
-  kind: 'sfx' | 'music', id: number, action: 'play' | 'stop', loopOn?: boolean,
+  kind: 'sfx' | 'music', id: number, action: AudioAction, loopOn?: boolean,
 ): Promise<AudioState> {
   if (!isTauri()) return emptyAudio;
   return invoke<AudioState>('studio_audio_transport', { kind, id, action, loopOn });

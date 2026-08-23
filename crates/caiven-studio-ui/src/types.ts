@@ -46,6 +46,9 @@ export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
 export interface CartSize { packedBytes: number; maxBytes: number; }
 export interface AssetBankState { kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music'; names: string[]; active: string; data: number[]; }
+/** Audio transport actions. `play_song` is music-only: its id is a
+ *  song-order step, not a pattern id. */
+export type AudioAction = 'play' | 'stop' | 'play_song';
 export interface AudioState {
   sfxActive: boolean; sfxId: number; sfxStep: number;
   musicActive: boolean; musicPattern: number; musicRow: number; musicLoop: boolean;

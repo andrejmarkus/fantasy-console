@@ -21,10 +21,11 @@
 //! 0x8000 ─ 0xBFFF   tile map (128 × 128 tiles, 1 byte per tile)
 //! 0xC000 ─ 0xC0FF   palette (16 slots × 3 bytes RGB)
 //! 0xC100 ─ 0xC4FF   SFX bank (16 sfx × 64 bytes)
-//! 0xC500 ─ 0xC6FF   music bank (8 patterns × 64 bytes)
-//! 0xC700 ─ 0xC702   RTC peripheral (hour, minute, second)
-//! 0xC703 ─ 0x10702  per-cell collision (128 × 128 tiles, 1 byte per cell)
-//! 0x10703 ─ 0x17FFF general purpose / heap
+//! 0xC500 ─ 0xC7FF   music bank (8 patterns × 64 bytes, then the song order
+//!                   table + its loop-point byte)
+//! 0xC800 ─ 0xC802   RTC peripheral (hour, minute, second)
+//! 0xC803 ─ 0x10802  per-cell collision (128 × 128 tiles, 1 byte per cell)
+//! 0x10803 ─ 0x17FFF general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -70,8 +71,19 @@ pub const MUSIC_PATTERN_ROWS: usize = 16;
 /// Typed music channels: 2 pulse, 1 triangle, 1 noise. One byte per channel
 /// per row holds that row's SFX reference, so this is also the row stride.
 pub const MUSIC_CHANNEL_COUNT: usize = 4;
-/// Music bank length in bytes (8 patterns × 16 rows × 4 channels).
-pub const MUSIC_BANK_LEN: usize = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+/// Pattern data length in bytes (8 patterns × 16 rows × 4 channels).
+pub const MUSIC_PATTERN_DATA_LEN: usize =
+    MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
+/// Song-order steps per music bank.
+pub const MUSIC_ORDER_STEPS: usize = 32;
+/// Song section length in bytes: the order table plus its loop-point byte.
+pub const MUSIC_SONG_LEN: usize = MUSIC_ORDER_STEPS + 1;
+/// Byte offset within the music bank where the song order table starts.
+pub const MUSIC_ORDER_OFFSET: usize = MUSIC_PATTERN_DATA_LEN;
+/// Byte offset within the music bank of the loop-point byte.
+pub const MUSIC_LOOP_POINT_OFFSET: usize = MUSIC_ORDER_OFFSET + MUSIC_ORDER_STEPS;
+/// Music bank length in bytes (pattern data plus the song order section).
+pub const MUSIC_BANK_LEN: usize = MUSIC_PATTERN_DATA_LEN + MUSIC_SONG_LEN;
 /// RTC register block length in bytes (hour, minute, second).
 pub const RTC_LEN: usize = 3;
 /// Collision layer length in bytes (128 × 128 cells, 1 byte per cell).
@@ -125,7 +137,7 @@ impl MemRegion {
             MemRegion::Map => 0x4000,
             MemRegion::Palette => 0x100,
             MemRegion::Sfx => 0x400,
-            MemRegion::Music => 0x200,
+            MemRegion::Music => 0x300,
             MemRegion::Rtc => RTC_LEN,
             MemRegion::Collision => 0x4000,
             // Everything left over at the top of RAM.
@@ -209,9 +221,9 @@ mod tests {
             (MemRegion::Palette, 0xC000),
             (MemRegion::Sfx, 0xC100),
             (MemRegion::Music, 0xC500),
-            (MemRegion::Rtc, 0xC700),
-            (MemRegion::Collision, 0xC703),
-            (MemRegion::Heap, 0x10703),
+            (MemRegion::Rtc, 0xC800),
+            (MemRegion::Collision, 0xC803),
+            (MemRegion::Heap, 0x10803),
         ];
 
         for (region, want) in expected {

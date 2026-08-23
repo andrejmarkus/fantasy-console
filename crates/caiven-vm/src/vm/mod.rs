@@ -22,7 +22,7 @@ pub use palette::*;
 pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SaveData, SaveDataError};
 
 use self::memory::Memory;
-use self::sfx::{MusicPlayer, SfxPlayer};
+use self::sfx::{MusicPlayer, SfxPlayer, resolve_song_step};
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
@@ -780,6 +780,26 @@ impl Vm {
 
     pub fn start_music(&mut self, pattern_id: u8) {
         self.music_player.start(pattern_id);
+    }
+
+    /// Starts song-order playback from `start_step`, the same way the Lua
+    /// `play_music_song` builtin does. A song with nothing to play at that
+    /// step (or its loop point) stops playback instead of starting it.
+    pub fn start_music_song(&mut self, start_step: u8) {
+        match resolve_song_step(&self.memory, start_step) {
+            Some((pattern, resolved_step)) => {
+                self.music_player.pattern_id = pattern;
+                self.music_player.song_step = resolved_step;
+                self.music_player.row = 0;
+                self.music_player.tick_count = 0;
+                self.music_player.active = true;
+                self.music_player.song_active = true;
+            }
+            None => {
+                self.music_player.active = false;
+                self.music_player.song_active = false;
+            }
+        }
     }
 
     pub fn stop_music(&mut self) {

@@ -2,6 +2,7 @@
 -- UP: slot 0 (left pan)   DOWN: slot 1 (right pan)
 -- LEFT: slot 2 (noise)    RIGHT: slot 3, held (stop on button_released)
 -- A: slot 0 again, but only if it isn't already playing (is_sfx_playing)
+-- B: play the song order table (patterns 0,1,0,1, looping back to step 0)
 -- SELECT: toggle background music, to show it keeps playing under SFX
 -- Paint sounds into these slots in the Caiven Studio SFX tab (F4)
 
@@ -20,7 +21,7 @@ function _update()
   draw_text("LEFT: NOISE", 4, 52, 1)
   draw_text("RIGHT (hold): stop_sfx on button_released", 4, 68, 1)
   draw_text("A: replay slot 0, skipped if already playing", 4, 84, 1)
-  draw_text("SELECT: toggle music", 4, 100, 1)
+  draw_text("B: play song   SELECT: toggle music", 4, 100, 1)
   draw_text(is_music_playing() and "MUSIC: ON" or "MUSIC: OFF", 4, 116, 1)
 
   if button_pressed(0) then play_sfx(0) end
@@ -37,6 +38,10 @@ function _update()
   if button_pressed(4) and not is_sfx_playing(held_handle or 0) then
     play_sfx(0)
   end
+
+  -- The song chains patterns from the bank's order table; play_music would
+  -- instead loop pattern 0 forever.
+  if button_pressed(5) then play_music_song() end
 
   if button_pressed(6) then
     if is_music_playing() then stop_music() else play_music(0) end

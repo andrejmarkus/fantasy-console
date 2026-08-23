@@ -12,7 +12,7 @@
   import { Textarea } from '@caiven/ui/textarea';
   import * as Dialog from '@caiven/ui/dialog';
   import type {
-    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionShape, CollisionType, Diagnostic, EditorInsertRequest,
+    ApiEntry, AssetIndex, AssetRef, AudioAction, AudioState, Breakpoint, CartMeta, CartSize, CollisionShape, CollisionType, Diagnostic, EditorInsertRequest,
     EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
@@ -25,8 +25,8 @@
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
   import {
-    MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_COUNT,
-    MUSIC_PATTERN_LEN, MUSIC_PATTERN_ROWS, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH,
+    MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_ORDER_OFFSET, MUSIC_ORDER_STEPS,
+    MUSIC_PATTERN_COUNT, MUSIC_PATTERN_LEN, MUSIC_PATTERN_ROWS, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH,
     SPRITE_SHEET_COLS,
   } from '../lib/ipc';
 
@@ -89,7 +89,10 @@
     onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', name?: string) => void | Promise<boolean | void>;
     onSfx: (slot: number, bytes: number[]) => void;
     onMusic: (pattern: number, bytes: number[]) => void;
-    onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
+    /** Writes into the bank's song section at `offset` bytes past
+     *  MUSIC_ORDER_OFFSET — the order table, then the loop-point byte. */
+    onSong: (offset: number, bytes: number[]) => void;
+    onAudio: (kind: 'sfx' | 'music', id: number, action: AudioAction) => void;
     onBreakpoint: (source: string, line: number) => void;
     onMeta: (title: string, author: string, meta: CartMeta) => void;
     onSetStdlibModule: (module: string, enabled: boolean) => void;
@@ -126,8 +129,10 @@
     screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, collisionTypes, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, preludeModules, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
-    soundSelection,
-    onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onAudio,
+    // Written through by the SFX/pattern list clicks below, so it must be
+    // bindable — mutating it as a plain prop is a Svelte ownership violation.
+    soundSelection = $bindable(),
+    onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onSong, onAudio,
     onBreakpoint, onMeta, onSetStdlibModule, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
@@ -186,6 +191,12 @@
   let paletteHistory = $state<HistoryState>(emptyHistory());
   let sfxHistory = $state<HistoryState>(emptyHistory());
   let musicHistory = $state<HistoryState>(emptyHistory());
+  // The tracker's row-range marquee (rows only — a step selection always spans
+  // all four channels) and the last row range / whole pattern copied from it.
+  let musicSelection = $state<{ from: number; to: number } | null>(null);
+  let musicRowClipboard = $state<{ rows: number; cells: number[] } | null>(null);
+  let musicPatternClipboard = $state<number[] | null>(null);
+  let musicRowDrag = $state(false);
   let tileSelectionReady = $state(false);
   let collisionOverlay = $state(true);
   let mapHover = $state<{ x: number; y: number; tile: number } | null>(null);
@@ -279,6 +290,9 @@
     spriteGroup = { w: 1, h: 1 };
     spriteSelection = null;
     spriteClipboard = null;
+    musicSelection = null;
+    musicRowClipboard = null;
+    musicPatternClipboard = null;
     sourceCursor = {};
   });
   $effect(() => {
@@ -307,6 +321,7 @@
   $effect(() => {
     activeMusicBank;
     musicHistory = emptyHistory();
+    musicSelection = null;
   });
   const docCategories = $derived.by(() => {
     const counts = new Map<string, number>();
@@ -1064,6 +1079,87 @@
     onMusic(pattern, after);
   }
 
+  /** Commits a whole pattern as one undo entry — the shared tail of every
+   *  music edit that isn't a single cell cycle. */
+  function commitPattern(pattern: number, before: number[], after: number[]) {
+    if (after.every((value, index) => value === before[index])) return;
+    musicHistory = pushEntry(musicHistory, {
+      label: `Pattern ${pattern.toString().padStart(2, '0')}`,
+      undo: () => onMusic(pattern, before),
+      redo: () => onMusic(pattern, after),
+    });
+    onMusic(pattern, after);
+  }
+
+  /** Normalized row range of the tracker marquee, low row first. */
+  const musicRows = $derived(musicSelection
+    ? { from: Math.min(musicSelection.from, musicSelection.to), to: Math.max(musicSelection.from, musicSelection.to) }
+    : null);
+  const musicRowSelected = (row: number) => !!musicRows && row >= musicRows.from && row <= musicRows.to;
+
+  function startRowSelect(row: number, extend: boolean) {
+    musicSelection = extend && musicSelection ? { from: musicSelection.from, to: row } : { from: row, to: row };
+    musicRowDrag = true;
+  }
+
+  function extendRowSelect(row: number) {
+    if (musicRowDrag && musicSelection) musicSelection = { from: musicSelection.from, to: row };
+  }
+
+  function copyMusicRows() {
+    if (!musicRows) return;
+    const rows = musicRows.to - musicRows.from + 1;
+    musicRowClipboard = {
+      rows,
+      cells: regionValues(patternBytes(selectedPattern), { x0: 0, y0: musicRows.from, w: MUSIC_CHANNEL_COUNT, h: rows }, MUSIC_CHANNEL_COUNT),
+    };
+  }
+
+  function cutMusicRows() {
+    if (!musicRows) return;
+    copyMusicRows();
+    const before = patternBytes(selectedPattern);
+    const after = [...before];
+    for (let row = musicRows.from; row <= musicRows.to; row += 1) {
+      for (let channel = 0; channel < MUSIC_CHANNEL_COUNT; channel += 1) after[row * MUSIC_CHANNEL_COUNT + channel] = 0;
+    }
+    commitPattern(selectedPattern, before, after);
+  }
+
+  /** Pastes the copied rows starting at the selection's first row (or row 0
+   *  with nothing selected); rows past the end of the pattern are clipped. */
+  function pasteMusicRows() {
+    if (!musicRowClipboard) return;
+    const before = patternBytes(selectedPattern);
+    const after = [...before];
+    const edits = pasteRegion(0, musicRows?.from ?? 0, MUSIC_CHANNEL_COUNT, musicRowClipboard.rows, musicRowClipboard.cells, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_ROWS);
+    for (const edit of edits) after[edit.index] = edit.value;
+    commitPattern(selectedPattern, before, after);
+  }
+
+  function copyPattern() { musicPatternClipboard = patternBytes(selectedPattern); }
+
+  function pastePattern() {
+    if (!musicPatternClipboard) return;
+    commitPattern(selectedPattern, patternBytes(selectedPattern), [...musicPatternClipboard]);
+  }
+
+  /** One song-order slot: 0 is empty, otherwise `pattern id + 1`. */
+  const songStep = (step: number) => music[MUSIC_ORDER_OFFSET + step] ?? 0;
+  const songLoopStep = $derived((music[MUSIC_ORDER_OFFSET + MUSIC_ORDER_STEPS] ?? 0) - 1);
+
+  /** Click cycles a slot through every pattern then back to empty — the same
+   *  interaction the tracker's own cells use. */
+  function changeSongStep(step: number) {
+    onSong(step, [(songStep(step) + 1) % (MUSIC_PATTERN_COUNT + 1)]);
+  }
+
+  /** Only one step can be the loop point, so setting a new one replaces it;
+   *  clicking the current loop point clears it. The byte is `step + 1`. */
+  function toggleSongLoop(step: number) {
+    onSong(MUSIC_ORDER_STEPS, [songLoopStep === step ? 0 : step + 1]);
+  }
+
   function undoMusic() { musicHistory = undoEntry(musicHistory); }
   function redoMusic() { musicHistory = redoEntry(musicHistory); }
 
@@ -1184,6 +1280,12 @@
       if (key === 'x' && spriteSelection) { event.preventDefault(); cutSpriteSelection(); return; }
       if (key === 'v' && spriteClipboard) { event.preventDefault(); pasteSpriteClipboard(); return; }
     }
+    if ((event.metaKey || event.ctrlKey) && screen === 'music' && !isTypingTarget(event.target)) {
+      const key = event.key.toLowerCase();
+      if (key === 'c' && musicRows) { event.preventDefault(); copyMusicRows(); return; }
+      if (key === 'x' && musicRows) { event.preventDefault(); cutMusicRows(); return; }
+      if (key === 'v' && musicRowClipboard) { event.preventDefault(); pasteMusicRows(); return; }
+    }
     if (event.key === ' ' && screen === 'map' && !isTypingTarget(event.target)) {
       event.preventDefault();
       spacePan = true;
@@ -1207,7 +1309,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleWorkspaceKeys} onkeyup={handleWorkspaceKeyUp} onblur={() => spacePan = false} />
+<svelte:window onkeydown={handleWorkspaceKeys} onkeyup={handleWorkspaceKeyUp} onblur={() => spacePan = false} onpointerup={() => musicRowDrag = false} />
 
 <main class="workspace">
   {#if ['sprites', 'map', 'palette'].includes(screen)}
@@ -1906,7 +2008,34 @@
             <code>{index.toString().padStart(2,'0')}</code><span>{patternBytes(index).some(Boolean) ? `Pattern ${index.toString().padStart(2,'0')}` : 'Empty pattern'}</span>
           </button>
         {/each}
+        <div class="pattern-clipboard">
+          <button class="pattern-copy" onclick={copyPattern}>Copy pattern</button>
+          <button class="pattern-paste" disabled={!musicPatternClipboard} onclick={pastePattern}>Paste into {selectedPattern.toString().padStart(2,'0')}</button>
+        </div>
         <div class="song-order"><span class="eyebrow">Playback</span><button class:active={audio.musicActive} onclick={() => onAudio('music', audio.musicPattern, audio.musicActive ? 'stop' : 'play')}><code>{audio.musicPattern.toString().padStart(2,'0')}</code>{audio.musicActive ? `Row ${audio.musicRow.toString(16).toUpperCase()}` : 'Stopped'}<small>{audio.musicLoop ? 'loop' : 'once'}</small></button></div>
+      </aside>
+      <aside class="song-editor">
+        <div class="panel-cap"><span class="eyebrow">Song order</span><button class="song-play" title="Play the song from step 00" onclick={() => onAudio('music', 0, 'play_song')}><Play size={14} /></button></div>
+        <p class="song-hint">Click a step to pick the pattern it plays. The loop point sends the song back there when it runs out; without one it stops.</p>
+        <div class="song-steps">
+          {#each Array(MUSIC_ORDER_STEPS) as _, step}
+            {@const slot = songStep(step)}
+            <div class="song-step" class:filled={slot > 0} class:loop={songLoopStep === step}>
+              <code>{step.toString().padStart(2,'0')}</code>
+              <button
+                class="song-slot"
+                aria-label={`Song step ${step}: ${slot ? `pattern ${slot - 1}` : 'empty'}`}
+                onclick={() => changeSongStep(step)}
+              >{slot ? (slot - 1).toString().padStart(2,'0') : '—'}</button>
+              <button
+                class="song-loop"
+                aria-label={`${songLoopStep === step ? 'Clear' : 'Set'} loop point at step ${step}`}
+                aria-pressed={songLoopStep === step}
+                onclick={() => toggleSongLoop(step)}
+              >⟲</button>
+            </div>
+          {/each}
+        </div>
       </aside>
       <div class="music-grid-wrap">
         <header>
@@ -1920,9 +2049,20 @@
         <div class="music-grid">
           <div class="music-head"><span>Row</span>{#each MUSIC_CHANNEL_LABELS as label}<span>{label}</span>{/each}</div>
           {#each Array(MUSIC_PATTERN_ROWS) as _, row}
-            <div class:playhead={audio.musicActive && audio.musicPattern === selectedPattern && audio.musicRow === row}><code>{row.toString(16).toUpperCase().padStart(2,'0')}</code>{#each MUSIC_CHANNEL_LABELS as _, channel}{@const cell = music[selectedPattern * MUSIC_PATTERN_LEN + row * MUSIC_CHANNEL_COUNT + channel] ?? 0}<button onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '—'}</button>{/each}</div>
+            <div class:playhead={audio.musicActive && audio.musicPattern === selectedPattern && audio.musicRow === row} class:selected={musicRowSelected(row)}><button
+              class="row-handle"
+              aria-label={`Select row ${row}`}
+              aria-pressed={musicRowSelected(row)}
+              onpointerdown={(event) => startRowSelect(row, event.shiftKey)}
+              onpointerenter={() => extendRowSelect(row)}
+            >{row.toString(16).toUpperCase().padStart(2,'0')}</button>{#each MUSIC_CHANNEL_LABELS as _, channel}{@const cell = music[selectedPattern * MUSIC_PATTERN_LEN + row * MUSIC_CHANNEL_COUNT + channel] ?? 0}<button class="music-cell" onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '—'}</button>{/each}</div>
           {/each}
         </div>
+        <p class="music-hints">
+          <span>Drag row numbers to select a step range</span>
+          <span>Ctrl+C copy · Ctrl+X cut · Ctrl+V paste rows</span>
+          <span>Space to preview</span>
+        </p>
       </div>
     </section>
 

@@ -10,8 +10,8 @@
 //! the fix.
 
 use caiven_core::memory::{
-    MAP_H, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_PATTERN_COUNT, MUSIC_PATTERN_ROWS, MemRegion,
-    RAM_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, SFX_BANK_LEN,
+    MAP_H, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_ORDER_STEPS, MUSIC_PATTERN_COUNT, MUSIC_PATTERN_ROWS,
+    MUSIC_SONG_LEN, MemRegion, RAM_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, SFX_BANK_LEN,
 };
 use regex::Regex;
 
@@ -176,6 +176,36 @@ fn ipc_ts_ram_size_matches_memory() {
     assert_eq!(
         got, RAM_SIZE,
         "ipc.ts RAM_SIZE: found {got}, expected {RAM_SIZE} from caiven_core::memory"
+    );
+}
+
+/// The song-order editor hand-copies the order table's size to lay out its
+/// step slots and to find the loop-point byte; a stale copy silently edits
+/// past the end of the table or misses the loop byte entirely.
+#[test]
+fn ipc_ts_song_order_shape_matches_memory() {
+    let steps_re = Regex::new(r"export const MUSIC_ORDER_STEPS = (\d+);").expect("valid regex");
+    let found = steps_re
+        .captures(IPC_TS)
+        .expect("ipc.ts: `export const MUSIC_ORDER_STEPS` not found");
+    let got: usize = found[1].parse().expect("regex only captures digits");
+    assert_eq!(
+        got, MUSIC_ORDER_STEPS,
+        "ipc.ts MUSIC_ORDER_STEPS: found {got}, expected {MUSIC_ORDER_STEPS} from caiven_core::memory"
+    );
+
+    // Written as `MUSIC_ORDER_STEPS + 1` for readability, so capture the addend
+    // and re-derive rather than expecting a bare literal.
+    let song_re = Regex::new(r"export const MUSIC_SONG_LEN = MUSIC_ORDER_STEPS \+ (\d+);")
+        .expect("valid regex");
+    let found = song_re
+        .captures(IPC_TS)
+        .expect("ipc.ts: `export const MUSIC_SONG_LEN = MUSIC_ORDER_STEPS + …` not found");
+    let addend: usize = found[1].parse().expect("regex only captures digits");
+    let got = got + addend;
+    assert_eq!(
+        got, MUSIC_SONG_LEN,
+        "ipc.ts MUSIC_SONG_LEN: found {got}, expected {MUSIC_SONG_LEN} from caiven_core::memory"
     );
 }
 

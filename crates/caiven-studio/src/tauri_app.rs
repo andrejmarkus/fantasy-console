@@ -10,9 +10,9 @@ use crate::studio::{SourceFile, asset_index, cart, examples, recent, templates};
 use caiven_cart::{DEFAULT_BANK_NAME, SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
-    COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
-    PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_BYTES,
-    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_ORDER_STEPS,
+    MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE,
+    SPRITE_BYTES, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
@@ -1519,9 +1519,14 @@ impl StudioCore {
             ("sfx", "play") if id < 16 => self.console.vm.start_sfx(id),
             ("sfx", "stop") => self.console.vm.stop_sfx(),
             ("music", "play") if id < 8 => self.console.vm.start_music(id),
+            // `id` is a song-order step here, not a pattern id.
+            ("music", "play_song") if (id as usize) < MUSIC_ORDER_STEPS => {
+                self.console.vm.start_music_song(id)
+            }
             ("music", "stop") => self.console.vm.stop_music(),
             ("sfx", "play") => return Err(format!("SFX id out of range: {id}")),
             ("music", "play") => return Err(format!("Music id out of range: {id}")),
+            ("music", "play_song") => return Err(format!("Song step out of range: {id}")),
             _ => return Err(format!("Unknown audio action: {kind}/{action}")),
         }
         Ok(self.audio_payload())

@@ -200,8 +200,43 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByLabel(/Note pitch per step/).click({ position: { x: 8, y: 20 } });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await page.getByRole('button', { name: 'Music', exact: true }).click();
-  await page.locator('.music-grid button').first().click();
+  const cells = page.locator('.music-grid .music-cell');
+  await expect(cells.first()).toHaveText('SFX 00');
+  await cells.first().click();
+  await expect(cells.first()).toHaveText('SFX 01');
   await page.keyboard.press('Space');
+
+  // Step-range copy/paste: select rows 0-1, copy, then paste onto rows 4-5.
+  const rowHandles = page.locator('.music-grid .row-handle');
+  await rowHandles.first().click();
+  await rowHandles.nth(1).click({ modifiers: ['Shift'] });
+  await expect(rowHandles.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Control+c');
+  await rowHandles.nth(4).click();
+  await expect(rowHandles.nth(4)).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Control+v');
+  await expect(cells.nth(4 * 4)).toHaveText('SFX 01');
+  await expect(cells.nth(5 * 4)).toHaveText('—');
+
+  // Whole-pattern copy/paste clones pattern 00's cells into pattern 01.
+  await page.getByRole('button', { name: 'Copy pattern' }).click();
+  await page.locator('.pattern-list > button').nth(1).click();
+  await expect(cells.first()).toHaveText('—');
+  await page.getByRole('button', { name: /^Paste into/ }).click();
+  await expect(cells.first()).toHaveText('SFX 01');
+  await expect(cells.nth(4 * 4)).toHaveText('SFX 01');
+
+  // Song order: chain two steps and mark step 01 as the loop point.
+  const stepZero = page.getByRole('button', { name: /^Song step 0:/ });
+  await stepZero.click();
+  await expect(stepZero).toHaveText('00');
+  const stepOne = page.getByRole('button', { name: /^Song step 1:/ });
+  await stepOne.click();
+  await stepOne.click();
+  await expect(stepOne).toHaveText('01');
+  await page.getByRole('button', { name: 'Set loop point at step 1', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Clear loop point at step 1', exact: true })).toBeVisible();
+  await page.getByTitle('Play the song from step 00').click();
 
   await page.getByTitle(/^Assets/).click();
   await expect(page.getByRole('heading', { name: 'Assets' })).toBeVisible();

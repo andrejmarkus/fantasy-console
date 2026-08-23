@@ -318,6 +318,12 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Start music track id, looping.",
     },
     ApiEntry {
+        name: "play_music_song",
+        params: &[param!("start_step": "u8?")],
+        returns: "nil",
+        doc: "Play the music bank's song order table from start_step (default 0), chaining patterns and honoring the bank's loop point. start_step is clamped into range; a song with nothing to play is a silent no-op.",
+    },
+    ApiEntry {
         name: "stop_music",
         params: &[],
         returns: "nil",

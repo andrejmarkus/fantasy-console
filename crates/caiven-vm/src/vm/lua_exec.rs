@@ -17,7 +17,7 @@ use super::audio::{SFX_VOICE_COUNT, Sound};
 use super::memory::Memory;
 use super::palette::Palette;
 use super::save_data::SaveData;
-use super::sfx::MusicPlayer;
+use super::sfx::{MusicPlayer, resolve_song_step};
 use super::{
     AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
     release_sfx_voice, unpack_sfx_handle,
@@ -27,8 +27,8 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
-    COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
-    SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
+    COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, MUSIC_ORDER_STEPS, PALETTE_RAM_BASE,
+    RTC_RAM_BASE, SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
@@ -75,6 +75,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "stop_sfx",
     "is_sfx_playing",
     "play_music",
+    "play_music_song",
     "stop_music",
     "is_music_playing",
     "set_master_volume",
@@ -1437,6 +1438,30 @@ fn register_builtins<'scope, 'env>(
         "play_music",
         scope.create_function_mut(|_, id: u8| {
             music_player.borrow_mut().start(id);
+            Ok(())
+        })?,
+    )?;
+
+    globals.set(
+        "play_music_song",
+        scope.create_function_mut(|_, start_step: Option<u8>| {
+            let step = start_step.unwrap_or(0).min(MUSIC_ORDER_STEPS as u8 - 1);
+            let resolved = resolve_song_step(&memory.borrow(), step);
+            let mut player = music_player.borrow_mut();
+            match resolved {
+                Some((pattern, resolved_step)) => {
+                    player.pattern_id = pattern;
+                    player.song_step = resolved_step;
+                    player.row = 0;
+                    player.tick_count = 0;
+                    player.active = true;
+                    player.song_active = true;
+                }
+                None => {
+                    player.active = false;
+                    player.song_active = false;
+                }
+            }
             Ok(())
         })?,
     )?;

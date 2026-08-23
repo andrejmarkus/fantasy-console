@@ -2,7 +2,7 @@
 
 use super::Vm;
 use super::memory::Memory;
-use super::sfx::{MusicPlayer, SfxPlayer, decode_byte3, note_to_freq};
+use super::sfx::{MusicPlayer, SfxPlayer, decode_byte3, note_to_freq, resolve_song_step};
 use crate::input::Input;
 use crate::rendering::font::Font;
 use crate::vm::audio;
@@ -101,7 +101,20 @@ impl Vm {
             self.music_player.tick_count = 0;
             self.music_player.row += 1;
             if self.music_player.row as usize >= MUSIC_PATTERN_ROWS {
-                if self.music_player.loop_on {
+                if self.music_player.song_active {
+                    let next = self.music_player.song_step.saturating_add(1);
+                    match resolve_song_step(&self.memory, next) {
+                        Some((pattern, resolved_step)) => {
+                            self.music_player.pattern_id = pattern;
+                            self.music_player.song_step = resolved_step;
+                            self.music_player.row = 0;
+                        }
+                        None => {
+                            self.music_player.active = false;
+                            self.music_player.song_active = false;
+                        }
+                    }
+                } else if self.music_player.loop_on {
                     self.music_player.row = 0;
                 } else {
                     self.music_player.active = false;

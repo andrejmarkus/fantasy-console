@@ -717,6 +717,28 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .music-grid > div:not(.music-head) { height: 36px; border-top: 1px solid var(--border-subtle); }
 .music-grid > div > code { display: flex; align-items: center; color: var(--color-ink-faint); font-size: 10px; }
 .music-grid > div > button { border: 0; border-left: 1px solid var(--border-subtle); color: var(--color-ink-dim); background: transparent; text-align: left; font-family: var(--font-mono); font-size: 9.5px; }
+/* The row number doubles as the step-range select handle, so it stays visually
+   a gutter label (no cell divider) while behaving like a button. */
+.music-grid > div > button.row-handle { border-left: 0; color: var(--color-ink-faint); font-size: 10px; cursor: ns-resize; }
+.music-grid > div > button.row-handle:hover { color: var(--color-ink); }
+.music-grid > div.selected { background: var(--color-sheen-wash); box-shadow: inset 3px 0 var(--color-sheen-bright); }
+.music-grid > div.selected > button.row-handle { color: var(--color-sheen-bright); }
+.music-hints { margin: 14px 0 0; display: flex; flex-wrap: wrap; gap: 16px; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 10.5px; }
+
+/* Pattern clipboard + song order editor, in the music screen's side rails. */
+.pattern-clipboard { padding: 10px 8px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-subtle); }
+.pattern-clipboard button { height: 27px; border: 1px solid var(--color-void-600); border-radius: 5px; color: var(--color-ink-dim); background: transparent; font-size: 10.5px; }
+.pattern-clipboard button:hover:not(:disabled) { color: var(--color-ink); background: var(--color-void-700); }
+.pattern-clipboard button:disabled { opacity: .45; }
+.song-editor { width: 220px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--color-void-600); background: var(--color-void-800); }
+.song-hint { margin: 8px 12px 10px; color: var(--color-ink-faint); font-size: 10.5px; line-height: 1.45; }
+.song-steps { flex: 1; min-height: 0; padding: 0 8px 12px; overflow: auto; }
+.song-step { height: 28px; display: grid; grid-template-columns: 26px 1fr 26px; align-items: center; gap: 4px; }
+.song-step > code { color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9.5px; }
+.song-step button { height: 24px; border: 0; border-radius: 5px; color: var(--color-ink-faint); background: var(--color-void-900); font-family: var(--font-mono); font-size: 10px; }
+.song-step button:hover { color: var(--color-ink); background: var(--color-void-700); }
+.song-step.filled > .song-slot { color: var(--color-ember); background: rgba(254,176,93,.16); }
+.song-step.loop > .song-loop { color: var(--color-sheen-bright); background: var(--color-sheen-wash); }
 
 /* Pages */
 .page-screen { height: 100%; min-height: 0; padding: 28px 34px 36px; overflow: auto; }

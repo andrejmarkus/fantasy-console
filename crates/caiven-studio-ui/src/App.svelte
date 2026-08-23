@@ -12,13 +12,13 @@
   import Drawer from './components/Drawer.svelte';
   import Overlays from './components/Overlays.svelte';
   import type {
-    CartTemplateSummary, Diagnostic, EditorInsertRequest, EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession,
+    AudioAction, CartTemplateSummary, Diagnostic, EditorInsertRequest, EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession,
     PublishProgress, Screen, StudioBootstrap, TickSnapshot,
   } from './types';
   import {
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
-    addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_PATTERN_LEN, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
+    addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_BANK_LEN, MUSIC_ORDER_OFFSET, MUSIC_PATTERN_LEN, portDownload, RAM_SIZE, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
@@ -467,7 +467,21 @@
     });
   }
 
-  async function doAudio(kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') {
+  /** Writes `bytes` into the active music bank's song section (order table +
+   *  loop-point byte) at `offset` bytes from the bank base. Shares the
+   *  pattern-edit commit path, so song edits land in the same undo history. */
+  function updateSong(offset: number, bytes: number[]) {
+    const at = MUSIC_ORDER_OFFSET + offset;
+    const previous = studio.music.slice(at, at + bytes.length);
+    studio.music.splice(at, bytes.length, ...bytes);
+    studio.ram.splice(MEMORY.music + at, bytes.length, ...bytes);
+    void commitMutation('Song order', () => writeMemory(MEMORY.music + at, bytes), () => {
+      studio.music.splice(at, bytes.length, ...previous);
+      studio.ram.splice(MEMORY.music + at, bytes.length, ...previous);
+    });
+  }
+
+  async function doAudio(kind: 'sfx' | 'music', id: number, action: AudioAction) {
     try { studio.audio = await audioTransport(kind, id, action); }
     catch (error) { showToast(String(error)); }
   }
@@ -973,14 +987,16 @@
       stateTimer = setInterval(() => {
         if (pendingWrites > 0 || stateInFlight) return;
         stateInFlight = true;
-        void Promise.all([readMemory(0, 65536), readAssetIndex()]).then(([ram, index]) => {
+        // Whole address space, not a hardcoded 64 KiB: collision and heap sit
+        // above that mark, so a short read silently truncated them.
+        void Promise.all([readMemory(0, RAM_SIZE), readAssetIndex()]).then(([ram, index]) => {
           if (!alive) return;
           studio.ram = ram;
           studio.spriteSheet = ram.slice(MEMORY.sprites, MEMORY.map);
           studio.map = ram.slice(MEMORY.map, MEMORY.palette);
           studio.collision = ram.slice(MEMORY.collision, MEMORY.collision + COLLISION_LEN);
           studio.sfx = ram.slice(MEMORY.sfx, MEMORY.music);
-          studio.music = ram.slice(MEMORY.music, MEMORY.music + 256);
+          studio.music = ram.slice(MEMORY.music, MEMORY.music + MUSIC_BANK_LEN);
           studio.assetIndex = index;
         }).catch(() => {}).finally(() => { stateInFlight = false; });
       }, 1000);
@@ -1096,7 +1112,8 @@
           onAssetBank={changeAssetBank}
           onSfx={updateSfx}
           onMusic={updateMusic}
-          {soundSelection}
+          onSong={updateSong}
+          bind:soundSelection
           onAudio={(kind, id, action) => void doAudio(kind, id, action)}
           onBreakpoint={(source, line) => void doBreakpoint(source, line)}
           onMeta={(title, author, meta) => void doMeta(title, author, meta)}
