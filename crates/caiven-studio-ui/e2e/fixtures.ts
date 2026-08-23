@@ -8,8 +8,8 @@ export interface E2EControl {
   delayNext(key: string, milliseconds: number): Promise<void>;
   queueDialog(kind: 'open' | 'save', value: string | null): Promise<void>;
   emit(event: string, payload: unknown): Promise<void>;
-  setTickBanks(active: Partial<Record<BankKind, number>>): Promise<void>;
-  setBankData(kind: BankKind, id: number, data: number[]): Promise<void>;
+  setTickBanks(active: Partial<Record<BankKind, string>>): Promise<void>;
+  setBankData(kind: BankKind, name: string, data: number[]): Promise<void>;
   snapshot(): Promise<Record<string, unknown>>;
 }
 
@@ -44,27 +44,30 @@ function installBridge() {
   const listenerEvents = new Map<number, { event: string; callback: number }>();
 
   const make = (length: number, seed = 0) => Array.from({ length }, (_, i) => i === 0 ? seed : 0);
-  const banks: Record<Kind, Map<number, number[]>> = {
-    sprites: new Map([[0, make(lengths.sprites, 7)], [1, make(lengths.sprites, 3)]]),
-    map: new Map([[0, make(lengths.map, 0)], [1, make(lengths.map, 9)]]),
+  // Named banks (post-22916a1): "default" is the reserved auto-loaded bank,
+  // "second" is a pre-seeded extra bank tests select/delete against.
+  const banks: Record<Kind, Map<string, number[]>> = {
+    sprites: new Map([['default', make(lengths.sprites, 7)], ['second', make(lengths.sprites, 3)]]),
+    map: new Map([['default', make(lengths.map, 0)], ['second', make(lengths.map, 9)]]),
     palette: new Map([
-      [0, [0, 0, 0, 29, 43, 83, 126, 37, 83, 0, 135, 81, 171, 82, 54, 95, 87, 79, 194, 195, 199, 255, 241, 232, 255, 0, 77, 255, 163, 0, 255, 236, 39, 0, 228, 54, 41, 173, 255, 131, 118, 156, 255, 119, 168, 255, 204, 170]],
-      [1, Array.from({ length: 16 }, (_, i) => [i, 255 - i, i * 8]).flat()],
+      ['default', [0, 0, 0, 29, 43, 83, 126, 37, 83, 0, 135, 81, 171, 82, 54, 95, 87, 79, 194, 195, 199, 255, 241, 232, 255, 0, 77, 255, 163, 0, 255, 236, 39, 0, 228, 54, 41, 173, 255, 131, 118, 156, 255, 119, 168, 255, 204, 170]],
+      ['second', Array.from({ length: 16 }, (_, i) => [i, 255 - i, i * 8]).flat()],
     ]),
-    sfx: new Map([[0, make(lengths.sfx, 12)], [1, make(lengths.sfx, 55)]]),
-    music: new Map([[0, make(lengths.music, 1)], [1, make(lengths.music, 8)]]),
+    sfx: new Map([['default', make(lengths.sfx, 12)], ['second', make(lengths.sfx, 55)]]),
+    music: new Map([['default', make(lengths.music, 1)], ['second', make(lengths.music, 8)]]),
   };
-  const flags = new Map([[0, make(256, 1)], [1, make(256, 2)]]);
+  const flags = new Map([['default', make(256, 1)], ['second', make(256, 2)]]);
   const COLLISION_OFFSET = 0x9703;
   const COLLISION_LEN = 4096;
-  const collision = new Map([[0, make(COLLISION_LEN, 0)], [1, make(COLLISION_LEN, 0)]]);
+  const collision = new Map([['default', make(COLLISION_LEN, 0)], ['second', make(COLLISION_LEN, 0)]]);
+  const BANK_NAME_PATTERN = /^[A-Za-z0-9_-]{1,31}$/;
   let collisionTypes: { id: number; name: string; color: [number, number, number]; shape: 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right' }[] = [
     { id: 0, name: 'walkable', color: [0, 0, 0], shape: 'none' },
     { id: 1, name: 'solid', color: [255, 176, 0], shape: 'solid' },
     { id: 2, name: 'hazard', color: [224, 32, 32], shape: 'none' },
   ];
-  const active: Record<Kind, number> = { sprites: 0, map: 0, palette: 0, sfx: 0, music: 0 };
-  const tickActive: Record<Kind, number> = { ...active };
+  const active: Record<Kind, string> = { sprites: 'default', map: 'default', palette: 'default', sfx: 'default', music: 'default' };
+  const tickActive: Record<Kind, string> = { ...active };
   const ram = make(65536);
   let runState: 'running' | 'paused' | 'stopped' = 'paused';
   let frame = 42;
@@ -199,23 +202,25 @@ function installBridge() {
       const action = String(args.action);
       if (!(kind in banks)) throw new Error(`Unknown bank kind: ${String(kind)}`);
       if (action === 'create') {
-        let id = 1; while (banks[kind].has(id)) id += 1;
-        banks[kind].set(id, make(lengths[kind]));
-        if (kind === 'sprites') flags.set(id, make(256));
-        if (kind === 'map') collision.set(id, make(COLLISION_LEN));
-        active[kind] = id; tickActive[kind] = id; sync(kind);
+        const name = String(args.name ?? '');
+        if (!BANK_NAME_PATTERN.test(name)) throw new Error(`Invalid bank name: ${name}`);
+        if (banks[kind].has(name)) throw new Error(`Bank ${name} already exists`);
+        banks[kind].set(name, make(lengths[kind]));
+        if (kind === 'sprites') flags.set(name, make(256));
+        if (kind === 'map') collision.set(name, make(COLLISION_LEN));
+        active[kind] = name; tickActive[kind] = name; sync(kind);
       } else if (action === 'select') {
-        const id = Number(args.id);
-        if (!banks[kind].has(id)) throw new Error(`Missing ${kind} bank ${id}`);
-        active[kind] = id; tickActive[kind] = id; sync(kind);
+        const name = String(args.name);
+        if (!banks[kind].has(name)) throw new Error(`Missing ${kind} bank ${name}`);
+        active[kind] = name; tickActive[kind] = name; sync(kind);
       } else if (action === 'delete') {
-        const id = Number(args.id);
-        if (id === 0) throw new Error('Bank 0 cannot be deleted');
-        banks[kind].delete(id); if (kind === 'sprites') flags.delete(id);
-        if (kind === 'map') collision.delete(id);
-        active[kind] = 0; tickActive[kind] = 0; sync(kind);
+        const name = String(args.name);
+        if (name === 'default') throw new Error('Default bank cannot be deleted');
+        banks[kind].delete(name); if (kind === 'sprites') flags.delete(name);
+        if (kind === 'map') collision.delete(name);
+        active[kind] = 'default'; tickActive[kind] = 'default'; sync(kind);
       } else if (action !== 'read') throw new Error(`Unknown bank action: ${action}`);
-      const result = { kind, ids: [...banks[kind].keys()], active: active[kind], data: [...banks[kind].get(active[kind])!] };
+      const result = { kind, names: [...banks[kind].keys()], active: active[kind], data: [...banks[kind].get(active[kind])!] };
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       return result;
     }
@@ -291,14 +296,14 @@ function installBridge() {
     async queueDialog(kind, value) { dialogs[kind].push(value); },
     async emit(event, payload) { emit(event, payload); },
     async setTickBanks(next) {
-      for (const [kind, id] of Object.entries(next) as [Kind, number][]) {
-        if (!banks[kind].has(id)) throw new Error(`Missing ${kind} bank ${id}`);
-        tickActive[kind] = id;
-        active[kind] = id;
+      for (const [kind, name] of Object.entries(next) as [Kind, string][]) {
+        if (!banks[kind].has(name)) throw new Error(`Missing ${kind} bank ${name}`);
+        tickActive[kind] = name;
+        active[kind] = name;
         sync(kind);
       }
     },
-    async setBankData(kind, id, data) { banks[kind].set(id, [...data]); if (active[kind] === id) sync(kind); },
+    async setBankData(kind, name, data) { banks[kind].set(name, [...data]); if (active[kind] === name) sync(kind); },
     async snapshot() { return { active: { ...active }, tickActive: { ...tickActive }, banks: Object.fromEntries((Object.keys(banks) as Kind[]).map((kind) => [kind, Object.fromEntries(banks[kind])])), flags: Object.fromEntries(flags), collision: Object.fromEntries(collision), ram: [...ram], sources: structuredClone(sources), recent: [...recent], breakpoints: structuredClone(breakpoints), watches: structuredClone(watches), port: { ...port }, assetIndexReads, cartSizeReads }; },
   };
 }
