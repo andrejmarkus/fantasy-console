@@ -6,7 +6,24 @@ use std::path::{Path, PathBuf};
 const MAX_RECENT: usize = 10;
 
 fn normalized_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    strip_verbatim_prefix(canonical)
+}
+
+/// `std::fs::canonicalize` on Windows returns `\\?\`-prefixed verbatim paths
+/// (e.g. `\\?\C:\Users\...`). Most Windows APIs accept them, but the string
+/// leaks into the frontend for display and re-open, where it reads as broken.
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
 }
 
 fn recent_file_path() -> Option<PathBuf> {
@@ -93,7 +110,7 @@ pub fn remove(list: &mut Vec<PathBuf>, path: &Path) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::remove_from_list;
+    use super::{remove_from_list, strip_verbatim_prefix};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -103,5 +120,20 @@ mod tests {
         assert!(remove_from_list(&mut list, Path::new("/carts/one")));
         assert_eq!(list, vec![PathBuf::from("/carts/two")]);
         assert!(!remove_from_list(&mut list, Path::new("/carts/missing")));
+    }
+
+    #[test]
+    fn strips_windows_verbatim_prefix() {
+        if !cfg!(windows) {
+            return;
+        }
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\me\carts\one")),
+            PathBuf::from(r"C:\Users\me\carts\one")
+        );
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\one")),
+            PathBuf::from(r"\\server\share\one")
+        );
     }
 }

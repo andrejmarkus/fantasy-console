@@ -7,9 +7,10 @@
  */
 export function tidyPath(path: string, keep = 2): string {
   if (!path) return '';
-  const segments = path.split('/').filter(Boolean);
+  const sep = path.includes('\\') && !path.includes('/') ? '\\' : '/';
+  const segments = path.split(/[/\\]/).filter(Boolean);
   if (segments.length <= keep) return path;
-  return `…/${segments.slice(-keep).join('/')}`;
+  return `…${sep}${segments.slice(-keep).join(sep)}`;
 }
 
 /** `count` with a correctly pluralised noun: 1 file, 2 files. */

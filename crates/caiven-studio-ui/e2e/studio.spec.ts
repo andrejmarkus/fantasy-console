@@ -183,10 +183,12 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByTitle('Move right').click();
   await page.getByTitle('Paste in place (Ctrl+Shift+V)').click();
 
-  // dialog.accept() with no argument submits an empty string, not the prompt's
-  // default value — pass it explicitly to accept "stamp_1" as offered.
-  page.once('dialog', (dialog) => dialog.accept(dialog.defaultValue()));
+  // Stamp naming uses Studio's own dialog (native window.prompt() never
+  // shows in the Tauri webview) — the input arrives pre-filled with
+  // "stamp_1", so submitting as-is accepts that default.
   await page.getByTitle('Save this selection as a named stamp').click();
+  await expect(page.locator('.module-dialog input')).toHaveValue('stamp_1');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByRole('button', { name: 'stamp_1', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'stamp_1', exact: true }).click();
   await expect(page.getByTitle('Pencil (p)')).toHaveClass(/active/);

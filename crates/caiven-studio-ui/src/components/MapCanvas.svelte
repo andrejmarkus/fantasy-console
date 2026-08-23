@@ -68,10 +68,12 @@
     return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
   });
 
-  // The map is not a whole number of screens wide (128 tiles / 24 per screen),
-  // so the right-hand screen column is a partial one and is drawn as such.
-  const screenCols = Math.ceil(MAP_W / SCREEN_TILES_W);
-  const screenRows = Math.ceil(MAP_H / SCREEN_TILES_H);
+  // The map is not a whole number of screens wide (128 tiles / 24 per
+  // screen), so a trailing sliver of tiles on the right isn't a full screen.
+  // Only whole screens get a coordinate label — numbering an 8-tile remnant
+  // "screen 5,y" reads as a broken/cut-off screen rather than a fractional one.
+  const screenCols = Math.floor(MAP_W / SCREEN_TILES_W);
+  const screenRows = Math.floor(MAP_H / SCREEN_TILES_H);
   const screenPctX = (SCREEN_TILES_W / MAP_W) * 100;
   const screenPctY = (SCREEN_TILES_H / MAP_H) * 100;
 

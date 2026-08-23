@@ -678,9 +678,10 @@
   function saveStampAs() {
     const source = mapStamp ?? (mapSelection ? { w: mapSelection.w, h: mapSelection.h, tiles: regionTiles(mapSelection) } : null);
     if (!source) return;
-    const name = window.prompt('Name this stamp:', `stamp_${mapStampLibrary.length + 1}`)?.trim();
-    if (!name) return;
-    mapStampLibrary = [...mapStampLibrary.filter((entry) => entry.name !== name), { name, ...source }];
+    openTextPrompt('Name this stamp', `stamp_${mapStampLibrary.length + 1}`, (name) => {
+      mapStampLibrary = [...mapStampLibrary.filter((entry) => entry.name !== name), { name, ...source }];
+      return null;
+    });
   }
 
   function loadStamp(name: string) {
@@ -1202,18 +1203,36 @@
 
   const BANK_NAME_PATTERN = /^[A-Za-z0-9_-]{1,31}$/;
 
-  /// Prompts for a new bank name; returns `undefined` on cancel or a name
-  /// failing the same charset the Rust decoder enforces (letters, digits,
-  /// `_`, `-`, 1-31 chars) — checked here so a bad name never round-trips
-  /// through the backend just to bounce back as an error toast.
-  function promptNewBankName(kind: string): string | undefined {
-    const name = window.prompt(`Name the new ${kind} bank (letters, digits, _, -):`)?.trim();
-    if (!name) return undefined;
-    if (!BANK_NAME_PATTERN.test(name)) {
-      window.alert(`"${name}" isn't a valid bank name — use 1-31 letters, digits, _, or -.`);
-      return undefined;
-    }
-    return name;
+  /** `window.prompt` is unimplemented in the Tauri webview (WKWebView never
+   *  shows a JS text-input panel unless the host app wires one up, so the
+   *  call just returns null with no dialog at all) — a self-drawn dialog is
+   *  the only way to ask for typed text inside Studio. */
+  interface TextPrompt { title: string; value: string; error: string; submit: (value: string) => string | null; }
+  let textPrompt = $state<TextPrompt | null>(null);
+
+  function openTextPrompt(title: string, initial: string, submit: (value: string) => string | null) {
+    textPrompt = { title, value: initial, error: '', submit };
+  }
+
+  function submitTextPrompt() {
+    if (!textPrompt) return;
+    const value = textPrompt.value.trim();
+    if (!value) { textPrompt.error = 'Required.'; return; }
+    const error = textPrompt.submit(value);
+    if (error) { textPrompt.error = error; return; }
+    textPrompt = null;
+  }
+
+  /// Opens the rename dialog for a new bank; the submit callback re-checks
+  /// the same charset the Rust decoder enforces (letters, digits, `_`, `-`,
+  /// 1-31 chars) so a bad name never round-trips through the backend just to
+  /// bounce back as an error toast.
+  function promptNewBankName(kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music') {
+    openTextPrompt(`Name the new ${kind} bank`, '', (name) => {
+      if (!BANK_NAME_PATTERN.test(name)) return '1-31 letters, digits, _, or -.';
+      onAssetBank(kind, 'create', name);
+      return null;
+    });
   }
 
   function signature(entry: ApiEntry) {
@@ -1326,7 +1345,7 @@
           <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', select.value) === false) select.value = activeBank; }}>
             {#each bankNames as name}<option value={name}>{name}</option>{/each}
           </select>
-          <button title={`Create ${bankKind} bank`} onclick={() => { const name = promptNewBankName(bankKind); if (name) onAssetBank(bankKind, 'create', name); }}><Plus size={14} /></button>
+          <button title={`Create ${bankKind} bank`} onclick={() => promptNewBankName(bankKind)}><Plus size={14} /></button>
           <button class="danger" disabled={activeBank === 'default'} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
         </div>
       {/if}
@@ -1345,7 +1364,7 @@
           <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', select.value) === false) select.value = activeBank; }}>
             {#each bankNames as name}<option value={name}>{name}</option>{/each}
           </select>
-          <button title={`Create ${bankKind} bank`} onclick={() => { const name = promptNewBankName(bankKind); if (name) onAssetBank(bankKind, 'create', name); }}><Plus size={14} /></button>
+          <button title={`Create ${bankKind} bank`} onclick={() => promptNewBankName(bankKind)}><Plus size={14} /></button>
           <button class="danger" disabled={activeBank === 'default'} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
         </div>
       {/if}
@@ -2256,5 +2275,22 @@
         </div>
       </div>
     </section>
+  {/if}
+
+  {#if textPrompt}
+    <Dialog.Root open onOpenChange={(open) => { if (!open) textPrompt = null; }}>
+    <Dialog.Content showCloseButton={false} class="dialog-frame">
+    <form class="module-dialog" onsubmit={(event) => { event.preventDefault(); submitTextPrompt(); }}>
+      <Button type="button" variant="ghost" size="icon-sm" class="dialog-close" aria-label="Close" onclick={() => textPrompt = null}><X size={17} /></Button>
+      <h2>{textPrompt.title}</h2>
+      <label>
+        Name
+        <span><Input bind:value={textPrompt.value} aria-invalid={Boolean(textPrompt.error)} autocomplete="off" spellcheck="false" autofocus /></span>
+      </label>
+      {#if textPrompt.error}<div class="form-error" role="alert">{textPrompt.error}</div>{/if}
+      <footer><Button type="button" variant="outline" onclick={() => textPrompt = null}>Cancel</Button><Button type="submit" disabled={!textPrompt.value.trim()}>Create</Button></footer>
+    </form>
+    </Dialog.Content>
+    </Dialog.Root>
   {/if}
 </main>

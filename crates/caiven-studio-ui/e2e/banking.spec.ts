@@ -3,6 +3,14 @@ import type { Page } from '@playwright/test';
 
 const kinds: BankKind[] = ['sprites', 'map', 'palette', 'sfx', 'music'];
 
+// Bank naming uses Studio's own dialog — native window.prompt() never shows
+// in the Tauri webview, so there's no native dialog to intercept anymore.
+async function createBankViaDialog(page: Page, kind: BankKind, name: string) {
+  await page.getByTitle(`Create ${kind} bank`).click();
+  await page.locator('.module-dialog input').fill(name);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+}
+
 async function openBankEditor(page: Page, kind: BankKind) {
   if (kind === 'sprites' || kind === 'map' || kind === 'palette') {
     await page.getByTitle(/^Art/).click();
@@ -22,8 +30,7 @@ for (const kind of kinds) {
 
     await expect(picker).toHaveValue('default');
     await expect(deleteButton).toBeDisabled();
-    page.once('dialog', (dialog) => dialog.accept('third'));
-    await page.getByTitle(`Create ${kind} bank`).click();
+    await createBankViaDialog(page, kind, 'third');
     await expect(picker).toHaveValue('third');
 
     await picker.selectOption('second');
@@ -75,8 +82,7 @@ test('runtime ticks refresh all visible bank editors', async ({ page, e2e }) => 
 test('bank create, select, and delete failures preserve active data and report toast', async ({ page, e2e }) => {
   await openBankEditor(page, 'palette');
   await e2e.failNext('studio_asset_bank:palette:create', 'create denied');
-  page.once('dialog', (dialog) => dialog.accept('third'));
-  await page.getByTitle('Create palette bank').click();
+  await createBankViaDialog(page, 'palette', 'third');
   await expect(page.getByText('Bank create failed: create denied')).toBeVisible();
   await expect(page.locator('.bank-picker select')).toHaveValue('default');
 

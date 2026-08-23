@@ -11,8 +11,9 @@ use caiven_cart::{DEFAULT_BANK_NAME, SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_ORDER_STEPS,
-    MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE,
-    SPRITE_BYTES, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, RGBA_BYTES, SCREEN_HEIGHT,
+    SCREEN_WIDTH, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_BYTES, SPRITE_SHEET_LEN,
+    SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
@@ -344,7 +345,7 @@ struct SharedSnapshot {
 impl Default for SharedSnapshot {
     fn default() -> Self {
         Self {
-            frame: vec![0; 128 * 128 * 4],
+            frame: vec![0; SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * RGBA_BYTES],
             tick: TickPayload {
                 run_state: RunState::Stopped,
                 frame: 0,
@@ -1783,7 +1784,7 @@ fn trim_output(output: &mut Vec<String>) {
 }
 
 fn write_shared_snapshot(studio: &mut StudioCore, snapshot: &Arc<RwLock<SharedSnapshot>>) {
-    let mut frame = vec![0; 128 * 128 * 4];
+    let mut frame = vec![0; SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * RGBA_BYTES];
     studio.console.screen.construct(
         &mut frame,
         studio.console.vm.world_pixels(),
@@ -2810,13 +2811,15 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Breakpoint, CoreCommand, RunState, StudioCore, debug_path, handle_command,
+        Breakpoint, CoreCommand, RunState, SharedSnapshot, StudioCore, debug_path, handle_command,
         normalized_module_path, parse_hex, save_data_path, trim_output, valid_watch_expression,
+        write_shared_snapshot,
     };
     use caiven_cart::DEFAULT_BANK_NAME;
+    use caiven_core::memory::{RGBA_BYTES, SCREEN_HEIGHT, SCREEN_WIDTH};
     use caiven_vm::AssetBankKind;
     use std::path::{Path, PathBuf};
-    use std::sync::mpsc;
+    use std::sync::{Arc, RwLock, mpsc};
 
     fn temp_dir(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -2838,6 +2841,25 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         handle_command(studio, build(tx));
         rx.try_recv().expect("handler always replies")
+    }
+
+    #[test]
+    fn shared_frame_buffer_matches_screen_dimensions() {
+        // Regression: this buffer was hardcoded to the pre-redesign 128x128
+        // screen, so `ImageData` construction in the frontend (which uses
+        // the real 192x128 dims) threw on a length mismatch and the console
+        // stayed blank on Run.
+        let expected_len = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * RGBA_BYTES;
+        assert_eq!(SharedSnapshot::default().frame.len(), expected_len);
+
+        let dir = temp_dir("shared-frame-buffer");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        let snapshot = Arc::new(RwLock::new(SharedSnapshot::default()));
+        write_shared_snapshot(&mut studio, &snapshot);
+        assert_eq!(snapshot.read().unwrap().frame.len(), expected_len);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
